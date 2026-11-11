@@ -6,9 +6,14 @@
     <string name="home_subtitle">Personal Assistant</string>
     <string name="home_tap_to_speak">Tap to speak</string>
     <string name="home_listening">Listening…</string>
-    <string name="home_not_available_yet">Voice input arrives in Phase 2</string>
+    <string name="home_processing">Working out what you said…</string>
+    <string name="home_tap_to_stop">Tap again to finish</string>
+    <string name="home_waiting_permission">Waiting for microphone access…</string>
+    <string name="home_permission_hint">Android asks once; allow it to continue</string>
+    <string name="home_mic_hint">Your speech is only used on this device to fill the card below</string>
 
     <!-- Status / result labels -->
+    <string name="label_hearing">Hearing</string>
     <string name="label_you_said">You said</string>
     <string name="label_command">Command</string>
     <string name="label_status">Status</string>
@@ -22,6 +27,12 @@
 
     <!-- Empty states -->
     <string name="empty_history">No commands yet. Tap the microphone and speak.</string>
+
+    <!-- Permissions -->
+    <string name="open_app_settings">Open app settings</string>
+
+    <!-- Footer -->
+    <string name="version_footer">Version 1 · Phase 2 of 16 — speech input only</string>
 
     <!-- Developer settings -->
     <string name="debug_mode">Debug mode</string>

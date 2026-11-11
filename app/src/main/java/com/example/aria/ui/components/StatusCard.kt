@@ -57,8 +57,13 @@ fun StatusCard(
 
         state.rawSpeech?.let { speech ->
             LabelledValue(
-                label = stringResource(R.string.label_you_said),
-                value = "\u201C$speech\u201D"
+                // While listening the text is still changing, so the label says
+                // so; after the final result it becomes a quotation.
+                label = stringResource(
+                    if (state.isLiveTranscript) R.string.label_hearing
+                    else R.string.label_you_said
+                ),
+                value = if (state.isLiveTranscript) speech else "\u201C$speech\u201D"
             )
         }
 
