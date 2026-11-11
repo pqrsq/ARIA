@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -30,6 +31,9 @@ import com.example.aria.ui.theme.AriaIcons
 
 /**
  * The single, big tap target of the app.
+ *
+ * [enabled] is false while a transcript is being finalised: the button dims and
+ * stops accepting taps so two recognition sessions can never overlap.
  *
  * ACCESSIBILITY: the button carries a contentDescription so TalkBack announces
  * it, and it keeps Material's 48dp minimum touch target.
@@ -69,6 +73,7 @@ fun MicrophoneButton(
     Box(
         modifier = modifier
             .size(168.dp)
+            .alpha(if (enabled) 1f else 0.55f)
             .scale(if (isListening) pulseScale else 1f),
         contentAlignment = Alignment.Center
     ) {

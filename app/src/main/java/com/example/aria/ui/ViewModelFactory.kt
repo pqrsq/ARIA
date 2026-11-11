@@ -2,25 +2,48 @@ package com.example.aria.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import com.example.aria.AriaApplication
+import com.example.aria.permissions.AndroidPermissionChecker
+import com.example.aria.permissions.MicrophonePermissionChecker
+import com.example.aria.voice.SpeechRecognizerManager
 
 /**
- * Tiny factory so the ViewModel can receive constructor dependencies without
- * pulling in a DI framework.
+ * Dependency wiring for the assistant screen — still no DI framework.
  *
- * WHY NO HILT/KOIN (yet): Version 1 has a handful of collaborators. A factory
- * keeps the build fast and the project readable for someone new to Android.
- * When the dependency graph grows (Phase 6+), replacing this with a DI
- * container is a local change because screens only ever ask for a ViewModel.
+ * WHY A FACTORY (and not Hilt/Koin): the graph is three objects (speech manager,
+ * permission checker, ViewModel). A factory keeps the build fast and the project
+ * readable. When the graph grows in Phase 6+, swapping in a container is a local
+ * change because screens only ever ask for a ViewModel.
+ *
+ * The application context arrives through `CreationExtras`, so nothing here can
+ * hold an Activity.
  */
-class AssistantViewModelFactory : ViewModelProvider.Factory {
+fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
+    initializer {
+        val application = this[APPLICATION_KEY] as AriaApplication
+        AssistantViewModel(
+            speechRecognizerManager = application.speechRecognizerManager,
+            permissionChecker = AndroidPermissionChecker(application)
+        )
+    }
+}
+
+/**
+ * Explicit factory used by tests and by any future screen that needs to inject a
+ * fake [SpeechRecognizerManager].
+ */
+class AssistantViewModelFactory(
+    private val speechRecognizerManager: SpeechRecognizerManager,
+    private val permissionChecker: MicrophonePermissionChecker
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(AssistantViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
-        return AssistantViewModel() as T
+        return AssistantViewModel(speechRecognizerManager, permissionChecker) as T
     }
 }
-
-/** Convenience used by MainActivity. */
-fun stateViewModelFactory(): ViewModelProvider.Factory = AssistantViewModelFactory()

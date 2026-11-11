@@ -1,5 +1,9 @@
 package com.example.aria.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,16 +30,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.aria.R
 import com.example.aria.ui.components.DebugSettingsSheet
@@ -45,6 +53,7 @@ import com.example.aria.ui.components.SectionHeader
 import com.example.aria.ui.components.StatusCard
 import com.example.aria.ui.theme.AriaColors
 import com.example.aria.ui.theme.AriaTheme
+import com.example.aria.voice.SpeechMessages
 
 /**
  * The one screen of Version 1.
@@ -57,6 +66,13 @@ import com.example.aria.ui.theme.AriaTheme
  *   header (title + gear)  →  microphone  →  latest result  →  history
  * The whole content scrolls so that small screens and large font sizes are
  * safe; the microphone stays near the top so it is always one tap away.
+ *
+ * PHASE 2 CHANGES (and only these):
+ *  - the Phase-1-only "Simulate a command" button is gone;
+ *  - tapping the microphone asks for `RECORD_AUDIO` when it is not yet held —
+ *    never at startup;
+ *  - the microphone is closed when the app leaves the foreground;
+ *  - the result card now receives real transcripts.
  */
 @Composable
 fun AssistantScreen(
@@ -64,11 +80,28 @@ fun AssistantScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    val permissionController = rememberMicrophonePermissionController { granted, permanentlyDenied ->
+        viewModel.onMicrophonePermissionResult(granted, permanentlyDenied)
+    }
+
+    // The ViewModel only decides "permission is needed"; the dialog is shown
+    // here, because launching it requires an Activity. One request per flag.
+    LaunchedEffect(state.isAwaitingPermission) {
+        if (state.isAwaitingPermission) permissionController.request()
+    }
+
+    // Privacy rule: never record while ARIA is in the background. ON_STOP also
+    // fires on Home press and on screen lock.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        viewModel.onAppBackgrounded()
+    }
 
     AssistantContent(
         state = state,
         onMicrophoneTapped = viewModel::onMicrophoneTapped,
-        onSimulateCommand = viewModel::simulateVoiceCommand,
+        onOpenAppSettings = { context.startActivity(appDetailsIntent(context)) },
         onDebugModeChanged = viewModel::onDebugModeChanged,
         onClearHistory = viewModel::clearHistory,
         modifier = modifier
@@ -79,13 +112,14 @@ fun AssistantScreen(
 private fun AssistantContent(
     state: AssistantUiState,
     onMicrophoneTapped: () -> Unit,
-    onSimulateCommand: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onDebugModeChanged: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showSettings by remember { mutableStateOf(false) }
     val isListening = state.status == AssistantStatus.LISTENING
+    val isProcessing = state.status == AssistantStatus.PROCESSING
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -117,36 +151,36 @@ private fun AssistantContent(
 
             MicrophoneButton(
                 isListening = isListening,
-                enabled = !isListening,
+                // Disabled while a transcript is being finalised (so the button
+                // cannot queue two sessions) and while the permission dialog is
+                // open (nothing to listen to yet).
+                enabled = !isProcessing && !state.isAwaitingPermission,
                 onClick = onMicrophoneTapped
             )
 
             Spacer(Modifier.height(10.dp))
             Text(
-                text = if (isListening) stringResource(R.string.home_listening)
-                else stringResource(R.string.home_tap_to_speak),
+                text = when {
+                    state.isAwaitingPermission -> stringResource(R.string.home_waiting_permission)
+                    isListening -> stringResource(R.string.home_listening)
+                    isProcessing -> stringResource(R.string.home_processing)
+                    else -> stringResource(R.string.home_tap_to_speak)
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isListening) AriaColors.Listening else AriaColors.TextSecondary,
                 textAlign = TextAlign.Center
             )
-
-            // --- Phase 1 scaffold control -----------------------------------
-            // This button exists ONLY because speech input is not built yet.
-            // It is deleted in Phase 2. It drives the exact same state machine
-            // (LISTENING → PROCESSING → SUCCESS) that the real pipeline uses,
-            // so the UI can be verified on a device today.
             Spacer(Modifier.height(4.dp))
-            TextButton(
-                onClick = onSimulateCommand,
-                enabled = !isListening
-            ) {
-                Text(
-                    text = "Simulate a command (Phase 1 only)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AriaColors.TextTertiary
-                )
-            }
-            // ---------------------------------------------------------------
+            Text(
+                text = when {
+                    state.isAwaitingPermission -> stringResource(R.string.home_permission_hint)
+                    isListening -> stringResource(R.string.home_tap_to_stop)
+                    else -> stringResource(R.string.home_mic_hint)
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = AriaColors.TextTertiary,
+                textAlign = TextAlign.Center
+            )
 
             Spacer(Modifier.height(22.dp))
 
@@ -155,10 +189,25 @@ private fun AssistantContent(
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
-                StatusCard(
-                    state = state,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    StatusCard(
+                        state = state,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Only a permanently blocked permission needs the detour
+                    // through system settings; a plain refusal just needs
+                    // another tap.
+                    if (state.isPermissionBlocked) {
+                        TextButton(onClick = onOpenAppSettings) {
+                            Text(
+                                text = stringResource(R.string.open_app_settings),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AriaColors.Accent
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(28.dp))
@@ -168,7 +217,7 @@ private fun AssistantContent(
 
             Spacer(Modifier.height(24.dp))
             Text(
-                text = "Version 1 · Phase 1 of 16 — UI shell only",
+                text = stringResource(R.string.version_footer),
                 style = MaterialTheme.typography.labelSmall,
                 color = AriaColors.TextTertiary,
                 textAlign = TextAlign.Center
@@ -186,6 +235,16 @@ private fun AssistantContent(
         }
     }
 }
+
+/**
+ * Opens ARIA's page in the system settings — the only place where a blocked
+ * microphone permission can be granted again.
+ */
+private fun appDetailsIntent(context: Context): Intent =
+    Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null)
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
 @Composable
 private fun Header(onSettingsClick: () -> Unit) {
@@ -223,21 +282,20 @@ private fun Header(onSettingsClick: () -> Unit) {
 @Composable
 private fun AssistantContentPreview() {
     val previewState = AssistantUiState(
-        status = AssistantStatus.SUCCESS,
-        rawSpeech = "Turn the volume down",
-        normalizedText = "turn the volume down",
-        commandType = "VOLUME_DOWN",
-        commandLabel = "Volume Down",
-        handler = "VolumeActionHandler",
-        message = "Simulated — no Android action was performed.",
+        status = AssistantStatus.LISTENING,
+        rawSpeech = "Turn the volume",
+        normalizedText = null,
+        message = null,
         debugMode = true,
         history = listOf(
             CommandRecord(
                 id = 1,
                 timestampMillis = 0L,
                 rawSpeech = "Turn the volume down",
-                commandType = "VOLUME_DOWN",
-                status = AssistantStatus.SUCCESS
+                commandType = AssistantViewModel.NO_COMMAND_YET,
+                handler = AssistantViewModel.PHASE_2_HANDLER_LABEL,
+                status = AssistantStatus.SUCCESS,
+                message = SpeechMessages.CAPTURED_NOT_EXECUTED
             )
         )
     )
@@ -246,7 +304,7 @@ private fun AssistantContentPreview() {
             AssistantContent(
                 state = previewState,
                 onMicrophoneTapped = {},
-                onSimulateCommand = {},
+                onOpenAppSettings = {},
                 onDebugModeChanged = {},
                 onClearHistory = {}
             )

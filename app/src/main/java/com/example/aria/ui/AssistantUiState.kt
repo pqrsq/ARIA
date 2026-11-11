@@ -64,9 +64,27 @@ data class AssistantUiState(
     val message: String? = null,
     val history: List<CommandRecord> = emptyList(),
     val debugMode: Boolean = false,
-    val isDebugToggleAvailable: Boolean = true
+    val isDebugToggleAvailable: Boolean = true,
+    /**
+     * PHASE 2: true while the screen must show the system microphone dialog.
+     * The UI observes this and asks once; the ViewModel never launches it
+     * (a permission request needs an Activity, which a ViewModel must not hold).
+     */
+    val isAwaitingPermission: Boolean = false,
+    /**
+     * PHASE 2: true when the microphone permission was refused for good, so the
+     * UI can offer a link to the app's settings page without string-matching.
+     */
+    val isPermissionBlocked: Boolean = false
 ) {
     /** True when there is at least one recognisable field worth showing. */
     val hasResult: Boolean
         get() = rawSpeech != null || message != null
+
+    /**
+     * True when the current result is a live transcript rather than a finished
+     * one, so the card can show the words as they are recognised.
+     */
+    val isLiveTranscript: Boolean
+        get() = status == AssistantStatus.LISTENING && !rawSpeech.isNullOrBlank()
 }

@@ -10,9 +10,9 @@ coding agent. Keep it updated at the end of every phase.
 
 | Phase | Scope | State |
 |---|---|---|
-| **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** (this phase) |
-| 2 | Speech-to-text | ⬜ next |
-| 3 | Text-to-speech | ⬜ |
+| **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** |
+| **2** | Speech-to-text (microphone → `String`) | ✅ **done** (this phase) |
+| 3 | Text-to-speech | ⬜ next |
 | 4 | `AssistantCommand` model | ⬜ |
 | 5 | Rule-based parser + unit tests | ⬜ |
 | 6 | `ActionExecutor` | ⬜ |
@@ -27,20 +27,30 @@ coding agent. Keep it updated at the end of every phase.
 | 15 | UI polish | ⬜ |
 | 16 | Release build | ⬜ |
 
-**Verified in this sandbox (real build, not a guess):**
+**Verified for Phase 1 (real build, on a physical device):**
 - `:app:assembleDebug` → BUILD SUCCESSFUL, APK produced (`artifacts/aria-phase1-debug.apk`)
 - `:app:testDebugUnitTest` → 4 tests, 0 failures
 - `:app:assembleDebugAndroidTest` → instrumented test APK compiles
 - Toolchain used: JDK 17, Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.12.01
 
+**Phase 2 status — read this before trusting the build:**
+- 22 unit tests (4 from Phase 1 + 18 new) and 4 instrumented tests are written.
+- ⚠️ Phase 2 has **NOT** been compiled or run yet. The agent that wrote it had no
+  JDK and no Android SDK available (no `java` on `PATH`, `ANDROID_HOME` unset), so
+  the code was reviewed by hand instead of built. **The first thing to do next is
+  `./gradlew :app:assembleDebug :app:testDebugUnitTest`** and fix whatever the
+  compiler reports, then run the manual checklist in `docs/PHASE2.md`.
+
 ---
 
 ## 2. What is intentionally NOT built yet
 
-No microphone code, no speech recognition, no TTS, no parser, no actions,
-no persistence. The microphone button is wired to a *state-only* placeholder so
-the UI is honest about what works. Phase 1 exists to prove the skeleton builds
-and the screen can render every state.
+Speech recognition **is** built (Phase 2). Still absent, on purpose:
+no TTS (Phase 3), no command model (Phase 4), no parser (Phase 5), no actions
+(Phases 6-11), no persistence (Phase 12). A recognised sentence therefore ends as
+a history row labelled `NO_COMMAND_YET`, with the card saying
+*"Speech captured. Understanding commands and performing actions comes in
+Phase 5."* — the UI never pretends a command was understood.
 
 ---
 
@@ -48,13 +58,21 @@ and the screen can render every state.
 
 ```
 SpeechRecognizer ──► String ──► CommandParser ──► AssistantCommand ──► ActionExecutor ──► Android API
-                                   (Phase 5)          (Phase 4)          (Phase 6)         (Phases 7-11)
+   (Phase 2 ✅)      (Phase 2 ✅)    (Phase 5)          (Phase 4)          (Phase 6)         (Phases 7-11)
 ```
 
+The left two boxes now exist. `SpeechRecognizerManager` produces the `String`; it
+stops there. Nothing downstream of that `String` has been written yet.
+
 - **Never** let a UI or voice class call an Android action API directly.
+- **Never** let an `android.*` type cross into `AssistantViewModel` or
+  `AssistantUiState`. Phase 2 enforces this with two seams:
+  `SpeechRecognizerManager` (events, not `Bundle`s) and
+  `MicrophonePermissionChecker` (a boolean, not a `Context`). That is what makes
+  the whole speech flow unit-testable on the JVM.
 - **Never** let the parser execute anything — it only returns a typed command.
 - Every handler is independent and receives only what its command carries.
-- `CommandParser` stays an **interface** so Phase 2 (future) can add an
+- `CommandParser` stays an **interface** so a later phase can add an
   `LlmCommandParser` without touching the action layer.
 - No root, no hidden APIs, no accessibility abuse, no continuous recording.
 
@@ -67,7 +85,10 @@ SpeechRecognizer ──► String ──► CommandParser ──► AssistantCom
 | State ownership / coroutines | `ui/AssistantViewModel.kt` |
 | Reusable widgets | `ui/components/` |
 | Colours / type / theme | `ui/theme/` |
-| Speech recognition (Phase 2) | `voice/SpeechRecognizerManager.kt` |
+| Speech recognition (Phase 2 ✅) | `voice/SpeechRecognizerManager.kt` (+ `SpeechMessages.kt`) |
+| App-scoped singletons (Phase 2 ✅) | `AriaApplication.kt` (owns the one recogniser) |
+| Permission *check* (Phase 2 ✅) | `permissions/PermissionManager.kt` |
+| Permission *dialog* (Phase 2 ✅) | `ui/MicrophonePermissionController.kt` (needs an Activity) |
 | TTS (Phase 3) | `voice/TextToSpeechManager.kt` |
 | Command model (Phase 4) | `command/AssistantCommand.kt` |
 | Parser interface + rules (Phase 5) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
@@ -75,6 +96,8 @@ SpeechRecognizer ──► String ──► CommandParser ──► AssistantCom
 | Installed-app discovery (Phase 10) | `data/AppRepository.kt` |
 | History persistence (Phase 12) | `history/CommandHistoryRepository.kt` |
 | Permission helpers (Phases 2, 11) | `permissions/PermissionManager.kt` |
+| Speech event/error vocabulary (Phase 2 ✅) | `voice/SpeechRecognizerManager.kt` |
+| Speech sentences shown to the user (Phase 2 ✅) | `voice/SpeechMessages.kt` |
 
 ---
 
@@ -97,9 +120,24 @@ SpeechRecognizer ──► String ──► CommandParser ──► AssistantCom
    inflated APK size and *broke the memory-limited build here*. The single custom
    icon needed lives in `ui/theme/AriaIcons.kt`; the settings gear comes from
    Material's small core icon set.
-7. **No permissions in the manifest yet.** Phase 1 needs none. Microphone is
-   requested in Phase 2, at the moment of use — which is also what Android's
-   guidelines require.
+7. **One permission, requested at the moment of use.** The manifest declares
+   `RECORD_AUDIO` (Android requires the declaration) but nothing prompts until
+   the microphone button is tapped. A `<queries>` entry for
+   `android.speech.RecognitionService` is required from API 30 on, otherwise
+   `isRecognitionAvailable()` can wrongly report `false`; it grants no data
+   access. Phase 11 adds the sound-mode permissions.
+9. **Speech is on-device first.** Recognition uses the phone's own
+   `SpeechRecognizer`; `EXTRA_PREFER_OFFLINE` is available as an opt-in flag
+   (`preferOfflineRecognition`) but defaults to `false`, because devices without a
+   downloaded offline model answer with an error instead of falling back. ARIA
+   stores no audio and sends none.
+10. **One recogniser, owned by the `Application`.** `SpeechRecognizer` must be
+    created once and reused; creating it per tap rebuilt the platform object on
+    every recomposition. `AriaApplication` holds it, the factory injects it.
+11. **The permission dialog lives in the UI layer.** A ViewModel must not hold an
+    `Activity`, so it only raises a flag (`isAwaitingPermission`); the screen
+    performs the request through an activity-result contract, which also
+    survives rotation.
 8. **`local.properties` is not committed.** It contains the SDK path of the
    machine that built the project. Android Studio regenerates it automatically.
 
@@ -115,8 +153,11 @@ response / `PHASE1.md`.
 ```bash
 cd ARIA
 ./gradlew :app:assembleDebug        # APK → app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest    # unit tests, no device needed
+./gradlew :app:testDebugUnitTest    # 22 unit tests, no device needed
 ./gradlew :app:installDebug         # install on a connected device
+
+# Phase 2 acceptance (all three must pass before calling it done):
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
 ```
 
 If `JAVA_HOME` is not set to a JDK 17, Android Studio's bundled JBR is fine, or:
@@ -131,6 +172,9 @@ export JAVA_HOME=/path/to/jdk-17
 
 A phase is finished only when *all* of these are true:
 
+0. **Runnable Android work happens in an environment that can compile it.** If the
+   agent has no JDK/Android SDK, say so explicitly and hand over a review-only
+   build — Phase 2 was written that way and that transcript must not repeat.
 1. `./gradlew :app:assembleDebug` succeeds.
 2. `./gradlew :app:testDebugUnitTest` succeeds (add tests for new logic).
 3. New behaviour is explained to the owner in plain language.
@@ -150,6 +194,11 @@ A phase is finished only when *all* of these are true:
 - Tests: parser/handler logic as **JUnit unit tests**; screen behaviour as
   **Compose UI tests** (`app/src/androidTest/`). Only put Android APIs behind
   thin, mockable wrappers so the logic underneath stays unit-testable.
+- Any ViewModel that collects a flow needs `MainDispatcherRule`
+  (`src/test/.../MainDispatcherRule.kt`) — `viewModelScope` is bound to
+  `Dispatchers.Main`, which does not exist on a plain JVM.
+- When you need a `Context`, ask for the interface instead (see
+  `MicrophonePermissionChecker`) so the fake stays trivial.
 
 ---
 
@@ -161,3 +210,11 @@ A phase is finished only when *all* of these are true:
   `gradle.properties` uses normal settings.
 - Samsung devices: sound-mode changes (Phase 11) may require
   "Do Not Disturb access"; this will be detected and explained to the user then.
+- The agent sandbox used for Phase 2 had **no JDK and no Android SDK**, and its
+  network allowlist does not include `services.gradle.org` or Google's Maven repo,
+  so Gradle cannot provision itself either. Android phases there can only be
+  written and reviewed. Plan the build/verification step for a machine that has
+  Android Studio.
+- Phase 2 added exactly two dependencies: `kotlinx-coroutines-test` (test-only,
+  `1.8.1`) and an explicit `material-icons-core` (it no longer arrives
+  transitively from material3, and the settings gear needs it).

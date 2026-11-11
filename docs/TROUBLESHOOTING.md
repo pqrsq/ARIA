@@ -36,7 +36,7 @@ settings.gradle.kts   build.gradle.kts   gradle.properties   gradlew   app/
    `C:\Users\Parsa\AndroidProjects\ARIA`.
    Avoid OneDrive/Dropbox-synced folders and paths with unusual characters.
 3. Confirm the folder is complete before opening it. Open
-   `ARIA\FILE_MANIFEST.txt` — it lists 39 files with checksums.
+   `ARIA\FILE_MANIFEST.txt` — it lists every file with a checksum.
    The important ones must be present:
    - `app\src\main\AndroidManifest.xml`
    - `app\src\main\java\com\example\aria\MainActivity.kt` (+ 16 more `.kt` files)

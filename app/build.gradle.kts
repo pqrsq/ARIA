@@ -47,6 +47,13 @@ android {
         compose = true
     }
 
+    testOptions {
+        // Dispatchers.setMain/resetMain reach into android.os.Looper. Returning
+        // default values for those stubs keeps the Phase 2 unit tests pure JVM —
+        // no Robolectric, no device, no extra dependency.
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -68,11 +75,18 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    // Small core icon set for the settings gear. Declared explicitly because
+    // it no longer arrives transitively from material3; the heavy "extended"
+    // icon artifact stays out on purpose (project rule, see PROJECT_GUIDE §4).
+    implementation(libs.androidx.compose.material.icons.core)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // Unit tests (run on your computer, no device needed)
     testImplementation(libs.junit)
+    // Phase 2: Dispatchers.setMain so the ViewModel's speech flow is testable
+    // on the JVM (see MainDispatcherRule). Test-only, adds nothing to the APK.
+    testImplementation(libs.kotlinx.coroutines.test)
 
     // Instrumented UI tests (run on a device/emulator)
     androidTestImplementation(platform(libs.androidx.compose.bom))

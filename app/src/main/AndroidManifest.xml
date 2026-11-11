@@ -2,13 +2,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        Phase 1 declares NO permissions on purpose.
-        ARIA only requests access at the moment it is needed (for example the
-        microphone will be requested in Phase 2 when the user taps the button).
-        This keeps the app honest: nothing is asked for before it is used.
+        PHASE 2 — the first permission ARIA declares.
+
+        Declaring it does NOT prompt the user. ARIA requests RECORD_AUDIO only
+        when the microphone button is tapped (see
+        ui/MicrophonePermissionController.kt), which is what Android's
+        guidelines require for a microphone.
+
+        Phase 11 will add the sound-mode permissions.
     -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+        Makes this app one of the "speech recognition services" Android can pick
+        from (API 30+). It is required for the package visibility rules: without
+        it, SpeechRecognizer.isRecognitionAvailable() can report false even when
+        a recogniser is installed. It grants no data access whatsoever.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
+        android:name=".AriaApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
