@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -57,9 +58,15 @@ class AssistantViewModelPhase6Test {
     /** Controllable wall clock for the duplicate window. */
     private var nowMillis: Long = 1_000L
 
-    private fun viewModel(): AssistantViewModel {
+    /**
+     * @param ttsReady false simulates a device whose speech engine never bound.
+     *   It is a parameter because the helper sets [FakeTextToSpeechManager.isReady]
+     *   itself — an earlier version defaulted it to `true` here and silently
+     *   undid a test that had set it to `false` beforehand.
+     */
+    private fun viewModel(ttsReady: Boolean = true): AssistantViewModel {
         speech.recognitionAvailable = true
-        tts.isReady = true
+        tts.isReady = ttsReady
         return AssistantViewModel(
             speechRecognizerManager = speech,
             permissionChecker = MicrophonePermissionChecker { true },
@@ -118,8 +125,12 @@ class AssistantViewModelPhase6Test {
         assertEquals("UNKNOWN", state.commandType)
         assertEquals("UnknownActionHandler", state.handler)
         assertEquals(ActionMessages.NOT_UNDERSTOOD, state.message)
-        // Nothing failed, so the card is not red.
-        assertEquals(AssistantStatus.SUCCESS, state.status)
+        // Nothing failed, so the card is never red. While the reply is being
+        // spoken the status is SPEAKING, so the *settled* state is asserted:
+        // once the audio ends, a NotUnderstood result is a success.
+        assertNotEquals(AssistantStatus.ERROR, state.status)
+        tts.finishSpeaking()
+        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
     }
 
     @Test
@@ -366,9 +377,41 @@ class AssistantViewModelPhase6Test {
     }
 
     @Test
-    fun `the whole flow works with an engine that cannot speak`() = runTest(dispatcher) {
-        tts.isReady = false
+    fun `a failure stays an ERROR card after the result has been spoken`() = runTest(dispatcher) {
+        // REGRESSION (found by the first real build of Phase 6): `speak()` raises
+        // TtsEvent.SpeakStarted *before it returns*, and the handler for that
+        // event used to repaint any non-null `lastSpokenText` as SPEAKING. A
+        // failing command was therefore shown as SPEAKING and then flipped to
+        // SUCCESS when the audio ended — a failed action that looked successful.
+        executor.result = ExecutionResult.Failure(ActionMessages.NO_MAP_APP)
         val vm = viewModel()
+
+        vm.say("navigate to milan")
+        tts.finishSpeaking()
+
+        val state = vm.uiState.value
+        assertEquals("A spoken failure must stay red", AssistantStatus.ERROR, state.status)
+        assertEquals(AssistantStatus.ERROR, state.history.first().status)
+        assertEquals(ActionMessages.NO_MAP_APP, state.lastSpokenText)
+    }
+
+    @Test
+    fun `a success still becomes SPEAKING while its result is read aloud`() = runTest(dispatcher) {
+        // The other half of the regression: the fix must not stop successful
+        // results from showing the speaking state.
+        executor.result = ExecutionResult.Success("Silent mode is on.")
+        val vm = viewModel()
+
+        vm.say("silent mode")
+
+        assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
+        tts.finishSpeaking()
+        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
+    }
+
+    @Test
+    fun `the whole flow works with an engine that cannot speak`() = runTest(dispatcher) {
+        val vm = viewModel(ttsReady = false)
 
         vm.say("volume up")
 

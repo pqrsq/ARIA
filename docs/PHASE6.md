@@ -256,8 +256,8 @@ some OEM builds throw for gated system screens).
 
 ## 9. Test coverage
 
-**117 new test methods**, all JVM-only, no device, no Robolectric. (The Phase 5
-suite was 125; the total is now 242.)
+**132 new test methods**, all JVM-only, no device, no Robolectric. (The Phase 5
+suite was 125; the total is now **257**.)
 
 | File | Tests | Covers |
 |---|---|---|
@@ -270,7 +270,7 @@ suite was 125; the total is now 242.)
 | `actions/SettingsActionHandlerTest.kt` | 4 | the four screens, missing screen |
 | `actions/AndroidActionExecutorTest.kt` | 11 | every command routed, error boundary, permission pass-through |
 | `actions/Fakes.kt` (`VolumeLevelCalculatorTest`) | 13 | rounding, clamping, round-trip, stream mapping, fake contract |
-| `ui/AssistantViewModelPhase6Test.kt` | 21 | pipeline, dedupe window, clock, errors, lifecycle, muting |
+| `ui/AssistantViewModelPhase6Test.kt` | 23 | pipeline, dedupe window, clock, errors, lifecycle, muting, failure-card regression |
 
 `AssistantViewModelTest` (32 tests) was **edited but not extended**: it needed the
 two new constructor arguments, and a handful of assertions in it were adjusted
@@ -282,7 +282,12 @@ Existing tests that were **not** touched: `AssistantCommandTest` (20),
 `RuleBasedCommandParserTest` (60), `AssistantUiStateTest` (4),
 `SpeechMessagesTest` (2), `TtsAcknowledgementsTest` (7).
 
-**Totals: 242 unit test methods** (125 before + 117 new), 6 instrumented.
+**Totals: 257 unit test methods** (125 before + 132 new), 6 instrumented.
+
+> **Counting correction.** Earlier revisions of this document said 242/114. That
+> was wrong: the count used a `*Test.kt` glob, which missed the 13 methods in
+> `actions/Fakes.kt` (they live in `VolumeLevelCalculatorTest`, declared in the
+> fakes file). The figure above is counted across every file under `app/src/test`
 
 > These numbers are counted from the source, **not** from a test run — see §10.
 
@@ -290,9 +295,12 @@ Existing tests that were **not** touched: `AssistantCommandTest` (20),
 
 ## 10. Build status — READ THIS
 
-⚠️ **Nothing in Phase 6 has been compiled or executed.** The sandbox has no JDK,
-no Android SDK and no route to Google's Maven repository (`java`, `javac`,
+⚠️ **The agent that wrote this phase could not compile it.** That environment has
+no JDK, no Android SDK and no route to Google's Maven repository (`java`, `javac`,
 `kotlinc` and `gradle` are all absent).
+
+**Update — the first real build has since been run by the project owner** (see
+`docs/PHASE6-fixes.md` for the four defects it exposed and their fixes).
 
 What was done instead: a manual static review of every new file for unused
 imports, unbalanced braces, nullable smart-casts, `suspend` calls in
@@ -304,7 +312,7 @@ in the new ViewModel test and an expected-value error in a volume test
 Still unverified:
 
 - `:app:assembleDebug` — **not run**
-- `:app:testDebugUnitTest` — **not run**; 242 methods expected (125 + 117)
+- `:app:testDebugUnitTest` — **not run**; 257 methods expected (125 + 132)
 - `:app:assembleDebugAndroidTest` — **not run** (never has been, in any phase)
 - Any behaviour on a real device — **not run**
 
@@ -345,6 +353,7 @@ Run these in order; each row is one acceptance check.
 | 14 | Disable/uninstall every map app, repeat #12 | "No map app is installed"; no crash |
 | 15 | Say **"open Chrome"** | Chrome opens; card says "Opening Chrome." |
 | 16 | Say **"open Photoshop"** (not installed) | `Could not find an app named "Photoshop".`; nothing opens |
+| 16b | Watch that same failure while ARIA speaks, then after it stops | The card stays **FAILED/red** the whole time and afterwards — a spoken failure must never turn green (a real bug found in the first build; see `docs/PHASE6-fixes.md`) |
 | 17 | Say **"open wifi settings"**, then **"open battery settings"** | The right screens open (not always the same one) |
 | 18 | Say **"make me a sandwich"** | "I didn't understand that command."; the card is **green/COMPLETED**, not red |
 | 19 | Say **"volume up"** twice quickly (~½ s apart) | The volume moves **once**; the second utterance adds no history row |
