@@ -159,7 +159,10 @@ class AssistantViewModelTest {
         speech.emitSuccessfulSession("Turn the volume down")
 
         val state = vm.uiState.value
-        assertEquals(AssistantStatus.SUCCESS, state.status)
+        // PHASE 3: a captured sentence is acknowledged out loud, so the live
+        // status is SPEAKING (it returns to SUCCESS when the audio ends, see the
+        // dedicated Phase 3 test). Everything the transcript fills is unchanged.
+        assertEquals(AssistantStatus.SPEAKING, state.status)
         assertEquals("Turn the volume down", state.rawSpeech)
         assertEquals("turn the volume down", state.normalizedText)
         assertEquals(AssistantViewModel.NO_COMMAND_YET, state.commandType)
