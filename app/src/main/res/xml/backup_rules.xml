@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Phase 1 defines the backup scope explicitly so that later phases
+    (command history in Phase 12) can decide what is safe to back up.
+    Nothing voice-related should ever leave the device via cloud backup.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>

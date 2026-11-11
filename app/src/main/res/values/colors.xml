@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only used by the system window background / launcher icon.
+         All in-app colors live in ui/theme/Color.kt (Compose). -->
+    <color name="aria_background">#FF07080D</color>
+    <color name="aria_accent">#FF6C8BFF</color>
+    <color name="aria_icon_background">#FF10131F</color>
+</resources>
