@@ -14,8 +14,8 @@ coding agent. Keep it updated at the end of every phase.
 | **2** | Speech-to-text (microphone → `String`) | ✅ **done** |
 | **3** | Text-to-speech (reply out loud) | ✅ **done** |
 | **4** | `AssistantCommand` model | ✅ **done** (this phase) |
-| 5 | Rule-based parser + unit tests | ⬜ next |
-| 6 | `ActionExecutor` | ⬜ |
+| **5** | Rule-based parser + unit tests | ✅ **done** (this phase) |
+| 6 | `ActionExecutor` | ⬜ next |
 | 7 | Volume actions | ⬜ |
 | 8 | Music actions | ⬜ |
 | 9 | Maps actions | ⬜ |
@@ -40,24 +40,30 @@ device: speech-to-text works, permission is requested on tap, no crashes.
 Samsung device after two build fixes (a shadowed `val` in `shutdown()`, and one
 stale Phase 2 assertion). Speech round-trips and TTS is mute-able.
 
-**Phase 4 status — read this before trusting the build:**
-- 65 unit tests and 6 instrumented tests are written.
-- **Phase 4 is purely additive**: two new files in `command/` and one new test
-  file. No existing file was modified, so Phases 1-3 cannot regress.
-- ⚠️ Phase 4 has **NOT** been compiled. Same sandbox limitation (no JDK/SDK, no
-  access to Google's Maven repo). It is plain Kotlin with zero imports, so the
-  risk is much lower than Phase 3's — but "lower" is not "verified". Run
-  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
+**Phase 4** was merged (`PR #4`) and verified by the owner on a physical Samsung
+device.
+
+**Phase 5 status — read this before trusting the build:**
+- 125 unit tests and 6 instrumented tests are written.
+- **Phase 5 is purely additive**: three new files in `command/` and one new test
+  file. `AssistantViewModel`, `AssistantUiState`, every UI file, every Gradle
+  file and the Phase 4 model are **unchanged**.
+- ⚠️ Phase 5 has **NOT** been compiled. Same sandbox limitation (no JDK/SDK, no
+  access to Google's Maven repo). Run
+  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`
+  and expect **125 tests, 0 failures**.
 
 ---
 
 ## 2. What is intentionally NOT built yet
 
-Speech recognition (Phase 2), speech output (Phase 3) and the command vocabulary
-(Phase 4) **are** built. Still absent, on purpose: no parser (Phase 5), no actions
-(Phases 6-11), no persistence (Phase 12). The command model exists but **nothing
-constructs one yet** — that is Phase 5's job, so the UI still records
-`NO_COMMAND_YET` and this is correct, not a missing wire-up. A recognised sentence therefore ends as
+Speech recognition (Phase 2), speech output (Phase 3), the command vocabulary
+(Phase 4) and the parser (Phase 5) **are** built. Still absent, on purpose: no
+executor or actions (Phases 6-11), no persistence (Phase 12). The parser exists
+and is fully tested but **is not wired in**: `AssistantViewModel` never calls it,
+so the UI still records `NO_COMMAND_YET`. That is correct — Phase 6 performs the
+wire-up, and wiring it earlier would have meant editing the ViewModel in Phase 5,
+which the phase brief forbade. A recognised sentence therefore ends as
 a history row labelled `NO_COMMAND_YET`, with the card saying
 *"Speech captured. Understanding commands and performing actions comes in
 Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you."
@@ -69,16 +75,17 @@ Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you.
 
 ```
 SpeechRecognizer ──► String ──► CommandParser ──► AssistantCommand ──► ActionExecutor ──► Android API
-   (Phase 2 ✅)      (Phase 2 ✅)    (Phase 5)          (Phase 4)          (Phase 6)         (Phases 7-11)
+   (Phase 2 ✅)      (Phase 2 ✅)  (Phase 5 ✅)        (Phase 4 ✅)        (Phase 6)         (Phases 7-11)
 
                         ▲                                              │
                         └──────── TextToSpeechManager ◄───────────────┘
                                      (Phase 3 ✅)
 ```
 
-The left two boxes and the return leg exist. `SpeechRecognizerManager` produces
-the `String`, `TextToSpeechManager` speaks a fixed acknowledgement back; nothing
-in between (parse → execute) has been written yet.
+Everything left of the executor exists: `SpeechRecognizerManager` produces the
+`String`, `RuleBasedCommandParser` turns it into a typed command, and
+`TextToSpeechManager` speaks back. **The links are not yet joined** — nothing calls
+the parser and nothing executes a command. Phase 6 closes the right-hand gap.
 
 - **Never** let a UI or voice class call an Android action API directly.
 - **Never** let an `android.*` type cross into `AssistantViewModel` or
@@ -96,9 +103,16 @@ in between (parse → execute) has been written yet.
 - **The command model stays pure Kotlin.** `command/` may not import `android.*`
   (it currently imports nothing at all). Android concepts enter as domain enums
   (`AudioStream`) and are mapped to platform constants only inside the executor.
-- **Nothing constructs an `AssistantCommand` except the parser.** Until Phase 5
-  exists, the UI keeps recording `NO_COMMAND_YET`; do not invent a fake producer
-  to "make it show up" — that is the Phase 1 "Simulate" mistake again.
+- **Nothing constructs an `AssistantCommand` except the parser.** The parser
+  exists now but is deliberately unwired; the UI keeps recording
+  `NO_COMMAND_YET` until Phase 6 connects the pipeline. Do not shortcut that by
+  calling the parser from a composable.
+- **The parser is a total, pure function.** `parse` never throws, never returns
+  null, never logs, has no state, and always falls back to
+  `AssistantCommand.Unknown` — precision over recall, always.
+- **Normalisation strips leading filler from BOTH the original and the normalised
+  text** (`TextNormalizer`). Stripping it from only one breaks entity slicing by
+  word position; that bug existed and is documented in `docs/PHASE5.md` §2.
 - No root, no hidden APIs, no accessibility abuse, no continuous recording.
 
 ### Where each concern goes
@@ -116,7 +130,8 @@ in between (parse → execute) has been written yet.
 | Permission *dialog* (Phase 2 ✅) | `ui/MicrophonePermissionController.kt` (needs an Activity) |
 | TTS (Phase 3 ✅) | `voice/TextToSpeechManager.kt` (+ `TtsAcknowledgements.kt`, `TtsMessages.kt`) |
 | Command model (Phase 4 ✅) | `command/AssistantCommand.kt` (+ `command/AudioStream.kt`) |
-| Parser interface + rules (Phase 5) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
+| Parser interface + rules (Phase 5 ✅) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
+| Text normalisation (Phase 5 ✅) | `command/TextNormalizer.kt` |
 | Execution fan-out (Phase 6) | `actions/ActionExecutor.kt` + one handler per category |
 | Installed-app discovery (Phase 10) | `data/AppRepository.kt` |
 | History persistence (Phase 12) | `history/CommandHistoryRepository.kt` |
@@ -185,6 +200,15 @@ in between (parse → execute) has been written yet.
     command?" belongs to the parser.
 19. **Android audio streams are a domain enum (`AudioStream`).** The executor maps
     it to `AudioManager` constants in one place, so the model stays JVM-testable.
+20. **The parser is an ordered chain of small rule stages, not one giant `when`.**
+    Each stage is independently readable, testable and re-orderable, and the order
+    itself is documented as a design decision (see `docs/PHASE5.md` §3).
+21. **`NormalizedText` carries three views: `original`, `entitySource`,
+    `normalized`.** Matching needs lowercase; entities need the user's
+    capitalisation; `Unknown` needs the untouched input.
+22. **The parser clamps, the model validates.** `SetVolume` refuses values outside
+    0..100, so `"volume 150"` is clamped to 100 *before* construction. Shouting a
+    number should give maximum volume, not an exception.
 8. **`local.properties` is not committed.** It contains the SDK path of the
    machine that built the project. Android Studio regenerates it automatically.
 
