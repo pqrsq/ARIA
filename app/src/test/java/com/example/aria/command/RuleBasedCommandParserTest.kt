@@ -1,5 +1,6 @@
 package com.example.aria.command
 
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,10 +27,11 @@ class RuleBasedCommandParserTest {
 
     /** Asserts the parser declines to interpret [input], keeping the raw text. */
     private fun assertUnknown(input: String) {
-        val result = parser.parse(input)
-        assertTrue("\"$input\" should be Unknown, was $result", result is AssistantCommand.Unknown)
-        assertEquals("Unknown must keep the raw text", input, result.rawText)
-    }
+    val result = parser.parse(input)
+    val unknown = result as? AssistantCommand.Unknown
+    assertNotNull("\"$input\" should be Unknown, was $result", unknown)
+    assertEquals("Unknown must keep the raw text", input, unknown!!.rawText)
+}
 
     // ═════════════════════════════════════════════════════════════════════════
     // A. POSITIVE MATCHING — at least three variations per command family
