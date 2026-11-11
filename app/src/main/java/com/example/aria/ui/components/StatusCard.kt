@@ -46,7 +46,10 @@ fun StatusCard(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(color = accent, pulsing = state.status == AssistantStatus.LISTENING)
+            StatusDot(
+                color = accent,
+                pulsing = state.status == AssistantStatus.LISTENING || state.isSpeaking
+            )
             Text(
                 text = state.status.displayLabel(),
                 style = MaterialTheme.typography.labelMedium,
@@ -79,6 +82,25 @@ fun StatusCard(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = AriaColors.TextSecondary
+            )
+        }
+
+        // PHASE 3: what ARIA said out loud. Rendered as text as well, so a muted
+        // or unavailable engine still leaves the user with the full reply.
+        state.spokenReply?.let { reply ->
+            LabelledValue(
+                label = stringResource(R.string.label_aria_said),
+                value = "\u201C$reply\u201D"
+            )
+        }
+
+        // PHASE 3: an unusable or unhappy engine is a notice, not a failure of
+        // the command — it never turns the card red or hides the transcript.
+        state.ttsMessage?.let { notice ->
+            Text(
+                text = notice,
+                style = MaterialTheme.typography.labelSmall,
+                color = AriaColors.Warning
             )
         }
 
@@ -125,6 +147,9 @@ private fun DebugBlock(state: AssistantUiState) {
         DebugLine("command", state.commandType ?: "—")
         DebugLine("handler", state.handler ?: "—")
         DebugLine("result", state.status.name)
+        DebugLine("tts", if (state.ttsEnabled) "enabled" else "muted")
+        DebugLine("tts engine", if (state.isTtsAvailable) "ready" else "unavailable")
+        DebugLine("spoken", state.lastSpokenText ?: "—")
     }
 }
 
@@ -154,6 +179,7 @@ private fun AssistantStatus.displayLabel(): String = when (this) {
     AssistantStatus.PROCESSING -> "PROCESSING"
     AssistantStatus.SUCCESS -> "COMPLETED"
     AssistantStatus.ERROR -> "FAILED"
+    AssistantStatus.SPEAKING -> "SPEAKING"
 }
 
 private fun AssistantStatus.accentColor(): Color = when (this) {
@@ -162,4 +188,5 @@ private fun AssistantStatus.accentColor(): Color = when (this) {
     AssistantStatus.PROCESSING -> AriaColors.Warning
     AssistantStatus.SUCCESS -> AriaColors.Success
     AssistantStatus.ERROR -> AriaColors.Error
+    AssistantStatus.SPEAKING -> AriaColors.Accent
 }

@@ -104,6 +104,7 @@ fun AssistantScreen(
         onOpenAppSettings = { context.startActivity(appDetailsIntent(context)) },
         onDebugModeChanged = viewModel::onDebugModeChanged,
         onClearHistory = viewModel::clearHistory,
+        onTtsEnabledChanged = viewModel::onTtsEnabledChanged,
         modifier = modifier
     )
 }
@@ -115,6 +116,7 @@ private fun AssistantContent(
     onOpenAppSettings: () -> Unit,
     onDebugModeChanged: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
+    onTtsEnabledChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showSettings by remember { mutableStateOf(false) }
@@ -164,10 +166,16 @@ private fun AssistantContent(
                     state.isAwaitingPermission -> stringResource(R.string.home_waiting_permission)
                     isListening -> stringResource(R.string.home_listening)
                     isProcessing -> stringResource(R.string.home_processing)
+                    // PHASE 3: the visible half of the speaking state.
+                    state.isSpeaking -> stringResource(R.string.speaking)
                     else -> stringResource(R.string.home_tap_to_speak)
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (isListening) AriaColors.Listening else AriaColors.TextSecondary,
+                color = when {
+                    isListening -> AriaColors.Listening
+                    state.isSpeaking -> AriaColors.Accent
+                    else -> AriaColors.TextSecondary
+                },
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(4.dp))
@@ -230,7 +238,10 @@ private fun AssistantContent(
                 debugMode = state.debugMode,
                 onDebugModeChanged = onDebugModeChanged,
                 onClearHistory = onClearHistory,
-                onDismiss = { showSettings = false }
+                onDismiss = { showSettings = false },
+                ttsEnabled = state.ttsEnabled,
+                isTtsAvailable = state.isTtsAvailable,
+                onTtsEnabledChanged = onTtsEnabledChanged
             )
         }
     }
@@ -306,7 +317,8 @@ private fun AssistantContentPreview() {
                 onMicrophoneTapped = {},
                 onOpenAppSettings = {},
                 onDebugModeChanged = {},
-                onClearHistory = {}
+                onClearHistory = {},
+                onTtsEnabledChanged = {}
             )
         }
     }

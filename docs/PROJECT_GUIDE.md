@@ -11,9 +11,9 @@ coding agent. Keep it updated at the end of every phase.
 | Phase | Scope | State |
 |---|---|---|
 | **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** |
-| **2** | Speech-to-text (microphone → `String`) | ✅ **done** (this phase) |
-| 3 | Text-to-speech | ⬜ next |
-| 4 | `AssistantCommand` model | ⬜ |
+| **2** | Speech-to-text (microphone → `String`) | ✅ **done** |
+| **3** | Text-to-speech (reply out loud) | ✅ **done** (this phase) |
+| 4 | `AssistantCommand` model | ⬜ next |
 | 5 | Rule-based parser + unit tests | ⬜ |
 | 6 | `ActionExecutor` | ⬜ |
 | 7 | Volume actions | ⬜ |
@@ -33,24 +33,28 @@ coding agent. Keep it updated at the end of every phase.
 - `:app:assembleDebugAndroidTest` → instrumented test APK compiles
 - Toolchain used: JDK 17, Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.12.01
 
-**Phase 2 status — read this before trusting the build:**
-- 22 unit tests (4 from Phase 1 + 18 new) and 4 instrumented tests are written.
-- ⚠️ Phase 2 has **NOT** been compiled or run yet. The agent that wrote it had no
-  JDK and no Android SDK available (no `java` on `PATH`, `ANDROID_HOME` unset), so
-  the code was reviewed by hand instead of built. **The first thing to do next is
-  `./gradlew :app:assembleDebug :app:testDebugUnitTest`** and fix whatever the
-  compiler reports, then run the manual checklist in `docs/PHASE2.md`.
+**Phase 2** was merged (`PR #1`) and verified by the owner on a physical Samsung
+device: speech-to-text works, permission is requested on tap, no crashes.
+
+**Phase 3 status — read this before trusting the build:**
+- 45 unit tests and 6 instrumented tests are written.
+- ⚠️ Phase 3 has **NOT** been compiled or run yet. The agent that wrote it again
+  had no JDK and no Android SDK (no `java` on `PATH`, `ANDROID_HOME` unset), so the
+  code was reviewed by hand instead of built. **The first thing to do next is
+  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`**,
+  fix whatever the compiler reports, then run the checklist in `docs/PHASE3.md`.
 
 ---
 
 ## 2. What is intentionally NOT built yet
 
-Speech recognition **is** built (Phase 2). Still absent, on purpose:
-no TTS (Phase 3), no command model (Phase 4), no parser (Phase 5), no actions
+Speech recognition (Phase 2) and speech output (Phase 3) **are** built. Still
+absent, on purpose: no command model (Phase 4), no parser (Phase 5), no actions
 (Phases 6-11), no persistence (Phase 12). A recognised sentence therefore ends as
 a history row labelled `NO_COMMAND_YET`, with the card saying
 *"Speech captured. Understanding commands and performing actions comes in
-Phase 5."* — the UI never pretends a command was understood.
+Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you."
+/ "Done." / "Got it.") — the UI never pretends a command was understood.
 
 ---
 
@@ -59,17 +63,25 @@ Phase 5."* — the UI never pretends a command was understood.
 ```
 SpeechRecognizer ──► String ──► CommandParser ──► AssistantCommand ──► ActionExecutor ──► Android API
    (Phase 2 ✅)      (Phase 2 ✅)    (Phase 5)          (Phase 4)          (Phase 6)         (Phases 7-11)
+
+                        ▲                                              │
+                        └──────── TextToSpeechManager ◄───────────────┘
+                                     (Phase 3 ✅)
 ```
 
-The left two boxes now exist. `SpeechRecognizerManager` produces the `String`; it
-stops there. Nothing downstream of that `String` has been written yet.
+The left two boxes and the return leg exist. `SpeechRecognizerManager` produces
+the `String`, `TextToSpeechManager` speaks a fixed acknowledgement back; nothing
+in between (parse → execute) has been written yet.
 
 - **Never** let a UI or voice class call an Android action API directly.
 - **Never** let an `android.*` type cross into `AssistantViewModel` or
-  `AssistantUiState`. Phase 2 enforces this with two seams:
-  `SpeechRecognizerManager` (events, not `Bundle`s) and
+  `AssistantUiState`. Three seams enforce it: `SpeechRecognizerManager` (events,
+  not `Bundle`s), `TextToSpeechManager` (events, not status codes) and
   `MicrophonePermissionChecker` (a boolean, not a `Context`). That is what makes
-  the whole speech flow unit-testable on the JVM.
+  the whole speech round-trip unit-testable on the JVM.
+- **Audio callbacks may only touch audio fields.** `onSpeechEvent` and
+  `onTtsEvent` must never rewrite a finished result or a history row; a late
+  callback that flips the card back to an earlier state is the classic bug here.
 - **Never** let the parser execute anything — it only returns a typed command.
 - Every handler is independent and receives only what its command carries.
 - `CommandParser` stays an **interface** so a later phase can add an
@@ -89,7 +101,7 @@ stops there. Nothing downstream of that `String` has been written yet.
 | App-scoped singletons (Phase 2 ✅) | `AriaApplication.kt` (owns the one recogniser) |
 | Permission *check* (Phase 2 ✅) | `permissions/PermissionManager.kt` |
 | Permission *dialog* (Phase 2 ✅) | `ui/MicrophonePermissionController.kt` (needs an Activity) |
-| TTS (Phase 3) | `voice/TextToSpeechManager.kt` |
+| TTS (Phase 3 ✅) | `voice/TextToSpeechManager.kt` (+ `TtsAcknowledgements.kt`, `TtsMessages.kt`) |
 | Command model (Phase 4) | `command/AssistantCommand.kt` |
 | Parser interface + rules (Phase 5) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
 | Execution fan-out (Phase 6) | `actions/ActionExecutor.kt` + one handler per category |
@@ -138,6 +150,18 @@ stops there. Nothing downstream of that `String` has been written yet.
     `Activity`, so it only raises a flag (`isAwaitingPermission`); the screen
     performs the request through an activity-result contract, which also
     survives rotation.
+12. **TTS is Application-scoped, not ViewModel-scoped.** Binding to the speech
+    engine is expensive; shutting it down in `onCleared()` would rebind on every
+    launch. The ViewModel only *stops* speech; the Application owns the engine.
+13. **`SPEAKING` is a status, not a boolean flag.** One immutable state must be
+    able to say "audio is playing while the transcript stays on screen" without
+    contradicting itself — the same reason `AssistantStatus` exists at all.
+14. **A broken engine is never a failed command.** TTS problems set
+    `ttsMessage` and leave the card green; the reply is always written as text
+    as well, so muting or a dead engine can never look like data loss.
+15. **Acknowledgements are a separate, pure object.** `TtsAcknowledgements` has no
+    Android and no state, so the one part of TTS that can be exhaustively tested
+    on the JVM is, and Phase 5 swaps its contents without touching the call site.
 8. **`local.properties` is not committed.** It contains the SDK path of the
    machine that built the project. Android Studio regenerates it automatically.
 
@@ -153,10 +177,10 @@ response / `PHASE1.md`.
 ```bash
 cd ARIA
 ./gradlew :app:assembleDebug        # APK → app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest    # 22 unit tests, no device needed
+./gradlew :app:testDebugUnitTest    # 45 unit tests, no device needed
 ./gradlew :app:installDebug         # install on a connected device
 
-# Phase 2 acceptance (all three must pass before calling it done):
+# Phase 3 acceptance (all three must pass before calling it done):
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
 ```
 
@@ -199,6 +223,12 @@ A phase is finished only when *all* of these are true:
   `Dispatchers.Main`, which does not exist on a plain JVM.
 - When you need a `Context`, ask for the interface instead (see
   `MicrophonePermissionChecker`) so the fake stays trivial.
+- New Android capability = new interface + fake in `src/test`, never a direct
+  `android.*` call from the ViewModel. `SpeechRecognizerManager` and
+  `TextToSpeechManager` are the templates.
+- Anything the ViewModel must show as text lives in a `*Messages` object
+  (`SpeechMessages`, `TtsMessages`), because the ViewModel cannot call
+  `stringResource`. Phase 15 moves them all into `strings.xml` in one pass.
 
 ---
 
@@ -218,3 +248,9 @@ A phase is finished only when *all* of these are true:
 - Phase 2 added exactly two dependencies: `kotlinx-coroutines-test` (test-only,
   `1.8.1`) and an explicit `material-icons-core` (it no longer arrives
   transitively from material3, and the settings gear needs it).
+- **Phase 3 added no dependencies at all** and changed no toolchain versions.
+- Hand-reviewing Kotlin without a compiler is not free: Phase 3 shipped three real
+  compile bugs that only a careful read caught (`event.error` accessed on the
+  `when` subject instead of the smart-cast value, `Lazy.isInitialized` used on a
+  `by lazy` delegated property, and `@Deprecated` applied to an override). Treat
+  "reviewed by hand" as *unverified*, not as *likely fine*.

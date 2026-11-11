@@ -22,7 +22,14 @@ enum class AssistantStatus {
     SUCCESS,
 
     /** Something failed: no speech, unknown command, missing app, no permission… */
-    ERROR
+    ERROR,
+
+    /**
+     * PHASE 3: ARIA is talking back. A distinct state (not a flag on SUCCESS)
+     * because the screen must be able to show "speaking" while the result card
+     * still shows what was said — one immutable state, no contradictions.
+     */
+    SPEAKING
 }
 
 /**
@@ -75,11 +82,48 @@ data class AssistantUiState(
      * PHASE 2: true when the microphone permission was refused for good, so the
      * UI can offer a link to the app's settings page without string-matching.
      */
-    val isPermissionBlocked: Boolean = false
+    val isPermissionBlocked: Boolean = false,
+    /**
+     * PHASE 3: the user's preference — may ARIA speak its replies?
+     * Defaults to true; Phase 12 will persist it. Toggled from the settings sheet.
+     */
+    val ttsEnabled: Boolean = true,
+    /**
+     * PHASE 3: the last line ARIA spoke (or tried to). Shown as text, so a muted
+     * or broken engine still gives the user the reply. Null when nothing spoke.
+     */
+    val spokenReply: String? = null,
+    /**
+     * PHASE 3: the reply being spoken or just spoken. [AssistantStatus.SPEAKING]
+     * is the state; this is the content, kept separately so the history and the
+     * card never have to be rewritten while audio plays.
+     */
+    val lastSpokenText: String? = null,
+    /**
+     * PHASE 3: false when the TTS engine failed to initialise (or has no en-US
+     * voice). The settings switch then explains itself instead of lying.
+     */
+    val isTtsAvailable: Boolean = true,
+    /**
+     * PHASE 3: why TTS is unavailable, ready to render. Null when all is well.
+     */
+    val ttsMessage: String? = null
 ) {
     /** True when there is at least one recognisable field worth showing. */
     val hasResult: Boolean
-        get() = rawSpeech != null || message != null
+        get() = rawSpeech != null || message != null || lastSpokenText != null
+
+    /** True while audio is playing, so the UI can pulse its "speaking" indicator. */
+    val isSpeaking: Boolean
+        get() = status == AssistantStatus.SPEAKING
+
+    /**
+     * True when the user wants speech AND the engine can do it. The single
+     * question the ViewModel asks before calling `speak`, so the two conditions
+     * can never drift apart.
+     */
+    val canSpeak: Boolean
+        get() = ttsEnabled && isTtsAvailable
 
     /**
      * True when the current result is a live transcript rather than a finished
