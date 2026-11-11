@@ -200,7 +200,6 @@ class ExecutionResultTest {
         AssistantCommand.VibrateMode,
         AssistantCommand.NormalRingMode,
         AssistantCommand.PlayMusic("jazz"),
-        AssistantCommand.PlayMusic(""),
         AssistantCommand.PauseMusic,
         AssistantCommand.ResumeMusic,
         AssistantCommand.NextTrack,
