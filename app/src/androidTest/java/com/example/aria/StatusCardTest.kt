@@ -64,4 +64,44 @@ class StatusCardTest {
         composeRule.onNodeWithText("I did not catch that. Tap the microphone and try again.")
             .assertIsDisplayed()
     }
+
+    @Test
+    fun speakingState_showsTheSpokenReplyAndStatus() {
+        composeRule.setContent {
+            AriaTheme {
+                StatusCard(
+                    state = AssistantUiState(
+                        status = AssistantStatus.SPEAKING,
+                        rawSpeech = "Turn the volume down",
+                        spokenReply = "I heard you.",
+                        lastSpokenText = "I heard you."
+                    )
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("SPEAKING").assertIsDisplayed()
+        composeRule.onNodeWithText("\u201CI heard you.\u201D").assertIsDisplayed()
+        // The transcript stays visible while ARIA talks.
+        composeRule.onNodeWithText("\u201CTurn the volume down\u201D").assertIsDisplayed()
+    }
+
+    @Test
+    fun unavailableTts_showsANoticeWithoutFailingTheResult() {
+        composeRule.setContent {
+            AriaTheme {
+                StatusCard(
+                    state = AssistantUiState(
+                        status = AssistantStatus.SUCCESS,
+                        rawSpeech = "hello",
+                        isTtsAvailable = false,
+                        ttsMessage = com.example.aria.voice.TtsMessages.ENGINE_UNAVAILABLE
+                    )
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("COMPLETED").assertIsDisplayed()
+        composeRule.onNodeWithText("Text-to-Speech engine not available.").assertIsDisplayed()
+    }
 }

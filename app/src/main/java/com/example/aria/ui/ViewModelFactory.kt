@@ -9,6 +9,7 @@ import com.example.aria.AriaApplication
 import com.example.aria.permissions.AndroidPermissionChecker
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.voice.SpeechRecognizerManager
+import com.example.aria.voice.TextToSpeechManager
 
 /**
  * Dependency wiring for the assistant screen — still no DI framework.
@@ -26,24 +27,30 @@ fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
         val application = this[APPLICATION_KEY] as AriaApplication
         AssistantViewModel(
             speechRecognizerManager = application.speechRecognizerManager,
-            permissionChecker = AndroidPermissionChecker(application)
+            permissionChecker = AndroidPermissionChecker(application),
+            textToSpeechManager = application.textToSpeechManager
         )
     }
 }
 
 /**
- * Explicit factory used by tests and by any future screen that needs to inject a
- * fake [SpeechRecognizerManager].
+ * Explicit factory used by tests and by any code that needs to inject fakes for
+ * [SpeechRecognizerManager] and [TextToSpeechManager].
  */
 class AssistantViewModelFactory(
     private val speechRecognizerManager: SpeechRecognizerManager,
-    private val permissionChecker: MicrophonePermissionChecker
+    private val permissionChecker: MicrophonePermissionChecker,
+    private val textToSpeechManager: TextToSpeechManager
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(AssistantViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
-        return AssistantViewModel(speechRecognizerManager, permissionChecker) as T
+        return AssistantViewModel(
+            speechRecognizerManager = speechRecognizerManager,
+            permissionChecker = permissionChecker,
+            textToSpeechManager = textToSpeechManager
+        ) as T
     }
 }

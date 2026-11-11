@@ -7,6 +7,11 @@ import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
 import com.example.aria.voice.SpeechMessages
 import com.example.aria.voice.SpeechRecognizerManager
+import com.example.aria.voice.TextToSpeechManager
+import com.example.aria.voice.TtsAcknowledgements
+import com.example.aria.voice.TtsError
+import com.example.aria.voice.TtsEvent
+import com.example.aria.voice.TtsMessages
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,18 +22,20 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Holds the screen state for the assistant.
  *
- * ── PHASE 2 SCOPE ────────────────────────────────────────────────────────────
- * Speech-to-text only. This ViewModel now:
+ * ── PHASE 3 SCOPE ────────────────────────────────────────────────────────────
+ * Speech in, speech out. This ViewModel now:
  *   1. exposes an immutable [AssistantUiState] through a StateFlow,
  *   2. asks for the microphone permission at the moment of use,
  *   3. drives [SpeechRecognizerManager] and folds its [SpeechEvent]s into the
- *      very same state fields Phase 1 introduced (rawSpeech → status → history).
+ *      very same state fields Phase 1 introduced (rawSpeech → status → history),
+ *   4. answers every captured sentence through [TextToSpeechManager] with a short
+ *      acknowledgement ("I heard you." / "Done." / "Got it."), unless the user
+ *      muted ARIA or the engine is unavailable.
  *
  * WHAT IT STILL DOES NOT DO (by design, per the phase plan):
- * no command parsing (Phase 5), no action execution (Phase 6+), no TTS
- * (Phase 3). A successful transcript ends as a history entry marked
- * `NO_COMMAND_YET` — proof that speech works, honestly labelled as not yet
- * understood.
+ * no command parsing (Phase 5), no action execution (Phase 6+). A successful
+ * transcript ends as a history entry marked `NO_COMMAND_YET` — proof that speech
+ * round-trips, honestly labelled as not yet understood.
  *
  * THREADING: `SpeechRecognizer` requires the main thread, so everything runs on
  * `viewModelScope` (Main.immediate). No `delay`, no timers: the state machine is
@@ -37,18 +44,29 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class AssistantViewModel(
     private val speechRecognizerManager: SpeechRecognizerManager,
-    private val permissionChecker: MicrophonePermissionChecker
+    private val permissionChecker: MicrophonePermissionChecker,
+    private val textToSpeechManager: TextToSpeechManager
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AssistantUiState())
+    private val _uiState = MutableStateFlow(AssistantUiState(
+        // Tell the truth immediately: an engine that is still binding, or that
+        // will never work, must not leave the switch promising sound.
+        isTtsAvailable = textToSpeechManager.isReady
+    ))
     val uiState: StateFlow<AssistantUiState> = _uiState.asStateFlow()
 
     /** Monotonic id source for history entries. */
     private val nextId = AtomicLong(1L)
 
+    /** How many replies have been spoken; drives the rotating acknowledgement. */
+    private var spokenTurns = 0
+
     init {
         viewModelScope.launch {
             speechRecognizerManager.events.collect(::onSpeechEvent)
+        }
+        viewModelScope.launch {
+            textToSpeechManager.events.collect(::onTtsEvent)
         }
     }
 
@@ -133,7 +151,12 @@ class AssistantViewModel(
                 handler = null,
                 message = null,
                 isAwaitingPermission = false,
-                isPermissionBlocked = false
+                isPermissionBlocked = false,
+                // Phase 3: a new attempt starts with a clean slate; the old reply
+                // must not linger under the new transcript.
+                spokenReply = null,
+                lastSpokenText = null,
+                ttsMessage = if (_uiState.value.isTtsAvailable) null else _uiState.value.ttsMessage
             )
         }
         speechRecognizerManager.startListening()
@@ -196,6 +219,136 @@ class AssistantViewModel(
                 history = listOf(record) + it.history
             )
         }
+
+        acknowledgeOutLoud()
+    }
+
+    /**
+     * PHASE 3 — the speaking half of the loop.
+     *
+     * Three rules, in order:
+     *  1. the user's mute wins over everything (no sound, no state change),
+     *  2. an unavailable engine is not an error here: the reply is still written
+     *     to the card as text, so nothing is lost,
+     *  3. otherwise speak a short acknowledgement and let [onTtsEvent] decide
+     *     when to leave the SPEAKING state.
+     *
+     * The pipeline stops here by design: Phase 5 replaces the *text* with a real
+     * command result, and this method keeps working unchanged.
+     */
+    private fun acknowledgeOutLoud() {
+        val state = _uiState.value
+        val reply = TtsAcknowledgements.forTurn(spokenTurns)
+
+        if (!state.ttsEnabled) {
+            // Muted: still show what ARIA would have said, so the user can tell
+            // the difference between "quiet" and "broken".
+            _uiState.update {
+                it.copy(lastSpokenText = null, spokenReply = reply)
+            }
+            return
+        }
+
+        if (!state.isTtsAvailable) {
+            // The engine is dead. Still show the reply, and keep saying why.
+            _uiState.update {
+                it.copy(
+                    spokenReply = reply,
+                    ttsMessage = TtsMessages.forError(TtsError.ENGINE_INIT_FAILED)
+                )
+            }
+            return
+        }
+
+        if (textToSpeechManager.speak(reply)) {
+            spokenTurns++
+            _uiState.update {
+                it.copy(
+                    status = AssistantStatus.SPEAKING,
+                    lastSpokenText = reply,
+                    spokenReply = reply
+                )
+            }
+        } else {
+            // speak() refused: the engine is degraded but the app carries on.
+            _uiState.update {
+                it.copy(
+                    spokenReply = reply,
+                    ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
+                )
+            }
+        }
+    }
+
+    /**
+     * PHASE 3 — single translation point from engine events to UI state.
+     *
+     * Deliberately narrow: audio events only ever touch the speaking fields, so
+     * a late or duplicated callback can never rewrite a finished result card.
+     */
+    private fun onTtsEvent(event: TtsEvent) {
+        when (event) {
+            TtsEvent.Ready -> _uiState.update {
+                it.copy(isTtsAvailable = true, ttsMessage = null)
+            }
+
+            is TtsEvent.Unavailable -> _uiState.update { state ->
+                state.copy(
+                    isTtsAvailable = false,
+                    ttsMessage = TtsMessages.forError(event.error),
+                    // A dead engine must not leave the screen stuck on SPEAKING.
+                    status = if (state.status == AssistantStatus.SPEAKING) {
+                        AssistantStatus.SUCCESS
+                    } else {
+                        state.status
+                    }
+                )
+            }
+
+            TtsEvent.SpeakStarted -> _uiState.update {
+                if (it.lastSpokenText == null) it
+                else it.copy(status = AssistantStatus.SPEAKING)
+            }
+
+            TtsEvent.SpeakFinished -> _uiState.update {
+                if (it.status == AssistantStatus.SPEAKING) {
+                    it.copy(status = AssistantStatus.SUCCESS)
+                } else {
+                    it
+                }
+            }
+
+            TtsEvent.SpeakFailed -> _uiState.update {
+                it.copy(
+                    status = if (it.status == AssistantStatus.SPEAKING) {
+                        AssistantStatus.SUCCESS
+                    } else {
+                        it.status
+                    },
+                    ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
+                )
+            }
+        }
+    }
+
+    /**
+     * PHASE 3 — the mute switch.
+     *
+     * Turning speech off mid-sentence stops the audio at once: mute must be
+     * immediate, not "after this sentence".
+     */
+    fun onTtsEnabledChanged(enabled: Boolean) {
+        if (!enabled) textToSpeechManager.stop()
+        _uiState.update {
+            it.copy(
+                ttsEnabled = enabled,
+                status = if (!enabled && it.status == AssistantStatus.SPEAKING) {
+                    AssistantStatus.SUCCESS
+                } else {
+                    it.status
+                }
+            )
+        }
     }
 
     private fun onFailure(error: SpeechError) {
@@ -246,7 +399,9 @@ class AssistantViewModel(
                 commandType = null,
                 commandLabel = null,
                 handler = null,
-                message = null
+                message = null,
+                spokenReply = null,
+                lastSpokenText = null
             )
         }
     }
@@ -261,8 +416,14 @@ class AssistantViewModel(
      */
     fun onAppBackgrounded() {
         speechRecognizerManager.cancel()
+        // Phase 3: a leaked utterance would talk over whatever the user opened
+        // next. Silence it for the same reason the microphone is closed.
+        textToSpeechManager.stop()
         _uiState.update {
-            if (it.status == AssistantStatus.LISTENING || it.status == AssistantStatus.PROCESSING) {
+            if (it.status == AssistantStatus.LISTENING ||
+                it.status == AssistantStatus.PROCESSING ||
+                it.status == AssistantStatus.SPEAKING
+            ) {
                 it.copy(status = AssistantStatus.IDLE, isAwaitingPermission = false)
             } else {
                 it.copy(isAwaitingPermission = false)
@@ -271,7 +432,10 @@ class AssistantViewModel(
     }
 
     override fun onCleared() {
+        // The recogniser is per-ViewModel; the TTS engine lives in the
+        // Application, so it is only silenced here and shut down there.
         speechRecognizerManager.release()
+        textToSpeechManager.stop()
         super.onCleared()
     }
 

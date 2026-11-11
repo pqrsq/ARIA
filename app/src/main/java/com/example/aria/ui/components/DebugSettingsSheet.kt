@@ -34,7 +34,10 @@ fun DebugSettingsSheet(
     debugMode: Boolean,
     onDebugModeChanged: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    ttsEnabled: Boolean = true,
+    isTtsAvailable: Boolean = true,
+    onTtsEnabledChanged: (Boolean) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState()
 
@@ -82,6 +85,41 @@ fun DebugSettingsSheet(
                 )
             }
 
+            // PHASE 3: the mute switch. Disabled — with an explanation — when the
+            // engine is unavailable, so it never claims to control something that
+            // cannot work on this device.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.tts_enabled),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (isTtsAvailable) AriaColors.TextPrimary
+                        else AriaColors.TextTertiary
+                    )
+                    Text(
+                        text = when {
+                            !isTtsAvailable -> stringResource(R.string.tts_unavailable)
+                            ttsEnabled -> stringResource(R.string.tts_enabled_summary)
+                            else -> stringResource(R.string.tts_muted_summary)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = AriaColors.TextTertiary
+                    )
+                }
+                Switch(
+                    checked = ttsEnabled && isTtsAvailable,
+                    enabled = isTtsAvailable,
+                    onCheckedChange = onTtsEnabledChanged,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = AriaColors.Background,
+                        checkedTrackColor = AriaColors.Accent
+                    )
+                )
+            }
+
             TextButton(
                 onClick = {
                     onClearHistory()
@@ -95,8 +133,8 @@ fun DebugSettingsSheet(
             }
 
             Text(
-                text = "ARIA 0.1.0 — Phase 1 (UI shell). Speech recognition is not "
-                    + "implemented yet; the microphone reports this honestly.",
+                text = "ARIA 0.1.0 — Phase 3. Speech in, speech out; commands are "
+                    + "not understood or executed yet.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = AriaColors.TextTertiary
             )

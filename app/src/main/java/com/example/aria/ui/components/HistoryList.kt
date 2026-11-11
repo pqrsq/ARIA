@@ -94,6 +94,8 @@ private fun ResultPill(status: AssistantStatus) {
         AssistantStatus.LISTENING -> "…" to AriaColors.Listening
         AssistantStatus.PROCESSING -> "…" to AriaColors.Warning
         AssistantStatus.IDLE -> "—" to AriaColors.TextTertiary
+        // A captured transcript that is being read back is still a success.
+        AssistantStatus.SPEAKING -> "OK" to AriaColors.Success
     }
     Text(
         text = label,

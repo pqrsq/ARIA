@@ -32,7 +32,15 @@
     <string name="open_app_settings">Open app settings</string>
 
     <!-- Footer -->
-    <string name="version_footer">Version 1 · Phase 2 of 16 — speech input only</string>
+    <string name="version_footer">Version 1 · Phase 3 of 16 — speech in and out</string>
+
+    <!-- Phase 3: speech output -->
+    <string name="speaking">Speaking…</string>
+    <string name="label_aria_said">ARIA said</string>
+    <string name="tts_enabled">Speak replies</string>
+    <string name="tts_enabled_summary">ARIA says a short acknowledgement out loud</string>
+    <string name="tts_muted_summary">Muted — replies are shown as text only</string>
+    <string name="tts_unavailable">Text-to-Speech engine not available</string>
 
     <!-- Developer settings -->
     <string name="debug_mode">Debug mode</string>
