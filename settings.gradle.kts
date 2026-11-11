@@ -1,12 +1,10 @@
 pluginManagement {
     repositories {
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
+        // آدرس مستقیم Google Maven برای دانلود پلاگین‌های اندروید
+        maven { url = uri("https://dl.google.com/dl/android/maven2/") }
+        
+        // منابع رسمی دیگر
+        google()
         mavenCentral()
         gradlePluginPortal()
     }
@@ -15,6 +13,10 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // آدرس مستقیم Google Maven برای دانلود کتابخانه‌ها
+        maven { url = uri("https://dl.google.com/dl/android/maven2/") }
+        
+        // منابع رسمی دیگر
         google()
         mavenCentral()
     }
