@@ -13,14 +13,14 @@ coding agent. Keep it updated at the end of every phase.
 | **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** |
 | **2** | Speech-to-text (microphone → `String`) | ✅ **done** |
 | **3** | Text-to-speech (reply out loud) | ✅ **done** |
-| **4** | `AssistantCommand` model | ✅ **done** (this phase) |
-| **5** | Rule-based parser + unit tests | ✅ **done** (this phase) |
-| 6 | `ActionExecutor` | ⬜ next |
-| 7 | Volume actions | ⬜ |
-| 8 | Music actions | ⬜ |
-| 9 | Maps actions | ⬜ |
-| 10 | App launching | ⬜ |
-| 11 | Sound modes (+ permissions) | ⬜ |
+| **4** | `AssistantCommand` model | ✅ **done** |
+| **5** | Rule-based parser + unit tests | ✅ **done** |
+| **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** (this phase) |
+| 7 | Volume actions | 🔀 folded into 6 |
+| 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
+| 9 | Maps actions | 🔀 folded into 6 |
+| 10 | App launching | 🔀 folded into 6 |
+| 11 | Sound modes (+ permissions) | 🔀 folded into 6 |
 | 12 | History + debug mode (persistence) | ⬜ |
 | 13 | Error handling pass | ⬜ |
 | 14 | Full regression on a physical device | ⬜ |
@@ -48,26 +48,41 @@ device.
 - **Phase 5 is purely additive**: three new files in `command/` and one new test
   file. `AssistantViewModel`, `AssistantUiState`, every UI file, every Gradle
   file and the Phase 4 model are **unchanged**.
-- ⚠️ Phase 5 has **NOT** been compiled. Same sandbox limitation (no JDK/SDK, no
-  access to Google's Maven repo). Run
-  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`
-  and expect **125 tests, 0 failures**.
+- Phase 5 is merged and its one test-file defect was fixed on `master`
+  (`b06a9e8`), so `master` is expected to be 125/125 green.
+
+**Phase 6 status — read this before trusting the build:**
+- One new package (`actions/`, 27 files) plus edits to the ViewModel, the UI
+  state, both factories, `AriaApplication`, the manifest and the preview/test
+  sample data. `AssistantCommand`, `AudioStream`, the parser and every Gradle
+  file are **unchanged**.
+- 242 unit test methods are written (125 before + 117 new) and 6 instrumented.
+- ⚠️ **Nothing in Phase 6 has been compiled.** No JDK, no Android SDK and no
+  route to Google's Maven repo in the sandbox. Run
+  `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
+- See `docs/PHASE6.md` §10 for exactly what was and was not verified, and §11 for
+  the 23-step manual test script.
 
 ---
 
 ## 2. What is intentionally NOT built yet
 
-Speech recognition (Phase 2), speech output (Phase 3), the command vocabulary
-(Phase 4) and the parser (Phase 5) **are** built. Still absent, on purpose: no
-executor or actions (Phases 6-11), no persistence (Phase 12). The parser exists
-and is fully tested but **is not wired in**: `AssistantViewModel` never calls it,
-so the UI still records `NO_COMMAND_YET`. That is correct — Phase 6 performs the
-wire-up, and wiring it earlier would have meant editing the ViewModel in Phase 5,
-which the phase brief forbade. A recognised sentence therefore ends as
-a history row labelled `NO_COMMAND_YET`, with the card saying
-*"Speech captured. Understanding commands and performing actions comes in
-Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you."
-/ "Done." / "Got it.") — the UI never pretends a command was understood.
+Phases 1-6 are built: speech in, parsing, real Android actions, speech out.
+A recognised sentence is now parsed, executed and reported with the real outcome
+("Media volume down to 47%."), and the history row carries the parsed command type
+(`VOLUME_DOWN`) and the handler that served it (`VolumeActionHandler`).
+
+Still absent, on purpose: no persistence (Phase 12), no history UI beyond the
+in-memory list, no LLM interpretation, no music *playback* control beyond
+dispatching transport keys, no notification-listener or accessibility access.
+
+Two Phase 6 outcomes that look like errors but are not:
+
+- An unrecognised sentence is `ExecutionResult.NotUnderstood`, shown as a
+  **COMPLETED** card with "I didn't understand that command." — nothing failed.
+- An action the device refuses (fixed volume, no map app, missing DND access) is
+  a failure or a `NotSupported`, and the message says exactly what did *not*
+  happen.
 
 ---
 
@@ -75,17 +90,19 @@ Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you.
 
 ```
 SpeechRecognizer ──► String ──► CommandParser ──► AssistantCommand ──► ActionExecutor ──► Android API
-   (Phase 2 ✅)      (Phase 2 ✅)  (Phase 5 ✅)        (Phase 4 ✅)        (Phase 6)         (Phases 7-11)
+   (Phase 2 ✅)      (Phase 2 ✅)  (Phase 5 ✅)        (Phase 4 ✅)        (Phase 6 ✅)     (Phase 6 ✅)
 
                         ▲                                              │
                         └──────── TextToSpeechManager ◄───────────────┘
                                      (Phase 3 ✅)
 ```
 
-Everything left of the executor exists: `SpeechRecognizerManager` produces the
-`String`, `RuleBasedCommandParser` turns it into a typed command, and
-`TextToSpeechManager` speaks back. **The links are not yet joined** — nothing calls
-the parser and nothing executes a command. Phase 6 closes the right-hand gap.
+**The pipeline is now closed end to end.** `AssistantViewModel` parses the
+transcript (on `Dispatchers.Default`), executes it (on `Dispatchers.IO`) and turns
+the returned `ExecutionResult` into the card, the history row and the spoken
+reply. `AndroidActionExecutor` is the only class that knows the whole
+command→handler map; each handler touches only the Android APIs its own commands
+need, through a small interface so the logic stays JVM-testable.
 
 - **Never** let a UI or voice class call an Android action API directly.
 - **Never** let an `android.*` type cross into `AssistantViewModel` or
@@ -97,16 +114,25 @@ the parser and nothing executes a command. Phase 6 closes the right-hand gap.
   `onTtsEvent` must never rewrite a finished result or a history row; a late
   callback that flips the card back to an earlier state is the classic bug here.
 - **Never** let the parser execute anything — it only returns a typed command.
+- **Every action goes through `ActionExecutor`.** No composable, no ViewModel and
+  no voice class calls `AudioManager`, `PackageManager`, `Settings` or
+  `startActivity`. `Intent`s are built in exactly one file (`AndroidLauncher`).
+- **Handlers return `ExecutionResult`, never throw and never guess.** The five
+  outcomes are `Success`, `Failure`, `NotUnderstood`, `RequiresPermission` and
+  `NotSupported`; the ViewModel maps them to the card colours, and only
+  `Success` may be worded as if something happened.
+- **Honesty rules for actions.** Report the value read *back*, not the value
+  requested. Say "Opening …" for a hand-off, never "Opened"/"Playing"/
+  "Navigated". A missing permission produces `RequiresPermission` and changes
+  nothing — ARIA never launches settings by itself.
 - Every handler is independent and receives only what its command carries.
 - `CommandParser` stays an **interface** so a later phase can add an
   `LlmCommandParser` without touching the action layer.
 - **The command model stays pure Kotlin.** `command/` may not import `android.*`
   (it currently imports nothing at all). Android concepts enter as domain enums
   (`AudioStream`) and are mapped to platform constants only inside the executor.
-- **Nothing constructs an `AssistantCommand` except the parser.** The parser
-  exists now but is deliberately unwired; the UI keeps recording
-  `NO_COMMAND_YET` until Phase 6 connects the pipeline. Do not shortcut that by
-  calling the parser from a composable.
+- **Nothing constructs an `AssistantCommand` except the parser**, and only
+  `AssistantViewModel` calls the parser. Do not shortcut that from a composable.
 - **The parser is a total, pure function.** `parse` never throws, never returns
   null, never logs, has no state, and always falls back to
   `AssistantCommand.Unknown` — precision over recall, always.
@@ -132,10 +158,12 @@ the parser and nothing executes a command. Phase 6 closes the right-hand gap.
 | Command model (Phase 4 ✅) | `command/AssistantCommand.kt` (+ `command/AudioStream.kt`) |
 | Parser interface + rules (Phase 5 ✅) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
 | Text normalisation (Phase 5 ✅) | `command/TextNormalizer.kt` |
-| Execution fan-out (Phase 6) | `actions/ActionExecutor.kt` + one handler per category |
-| Installed-app discovery (Phase 10) | `data/AppRepository.kt` |
+| Execution fan-out (Phase 6 ✅) | `actions/AndroidActionExecutor.kt` + one handler per category |
+| Action outcome vocabulary (Phase 6 ✅) | `actions/ExecutionResult.kt` (+ `ActionMessages.kt`) |
+| Android seams for actions (Phase 6 ✅) | `actions/*Controller.kt`, `InstalledAppsProvider.kt`, `Launcher.kt` |
+| Installed-app discovery (Phase 6 ✅) | `actions/InstalledAppsProvider.kt` |
 | History persistence (Phase 12) | `history/CommandHistoryRepository.kt` |
-| Permission helpers (Phases 2, 11) | `permissions/PermissionManager.kt` |
+| Permission helpers (Phases 2, 6 ✅) | `permissions/PermissionManager.kt`, `permissions/PolicyAccessChecker.kt` |
 | Speech event/error vocabulary (Phase 2 ✅) | `voice/SpeechRecognizerManager.kt` |
 | Speech sentences shown to the user (Phase 2 ✅) | `voice/SpeechMessages.kt` |
 
@@ -165,7 +193,9 @@ the parser and nothing executes a command. Phase 6 closes the right-hand gap.
    the microphone button is tapped. A `<queries>` entry for
    `android.speech.RecognitionService` is required from API 30 on, otherwise
    `isRecognitionAvailable()` can wrongly report `false`; it grants no data
-   access. Phase 11 adds the sound-mode permissions.
+   access. **Phase 6 added no permission at all** — volume, ringer mode, media
+   keys, maps and settings screens need none — and Do Not Disturb access stays a
+   user-granted settings toggle that ARIA can only *report* as missing.
 9. **Speech is on-device first.** Recognition uses the phone's own
    `SpeechRecognizer`; `EXTRA_PREFER_OFFLINE` is available as an opt-in flag
    (`preferOfflineRecognition`) but defaults to `false`, because devices without a
@@ -209,6 +239,36 @@ the parser and nothing executes a command. Phase 6 closes the right-hand gap.
 22. **The parser clamps, the model validates.** `SetVolume` refuses values outside
     0..100, so `"volume 150"` is clamped to 100 *before* construction. Shouting a
     number should give maximum volume, not an exception.
+23. **Handlers take ports, not `Context`.** `AudioVolumeController`,
+    `RingerController`, `MediaKeyController`, `InstalledAppsProvider` and
+    `Launcher` are small interfaces; the Android classes behind them make one call
+    per method. That is what lets "the device ignored the change", "no map app is
+    installed" and "the package refused to launch" be tested on the JVM instead of
+    guessed at on a phone.
+24. **`ExecutionResult` has five outcomes, not two.** `NotUnderstood` (nothing was
+    attempted) and `NotSupported` (the device cannot) are genuinely different from
+    `Failure`, and the card colour depends on the distinction — a red FAILED card
+    for "I didn't understand that" would misreport reliability.
+25. **Nothing pre-checks with `resolveActivity()`.** Under Android 11+ package
+    visibility it returns `null` for launches that would succeed. ARIA attempts
+    the launch and treats `ActivityNotFoundException` (and `SecurityException`)
+    as "no app".
+26. **Narrow `<queries>` only — never `QUERY_ALL_PACKAGES`.** Four intent filters
+    cover the launcher list, `geo:`, `google.navigation:` and `CATEGORY_APP_MUSIC`.
+    The cost is documented in `docs/PHASE6.md` §8: an app that hides from
+    launcher queries cannot be opened by name, and ARIA says so instead of asking
+    for a blanket permission.
+27. **Sound modes are verified, never assumed.** `setRingerMode` is a request, so
+    the mode is read back; `setInterruptionFilter()` is deliberately unused
+    because it would mean Do Not Disturb (muting alarms) rather than a silent
+    ringer.
+28. **Dispatchers and the clock are constructor parameters with production
+    defaults.** `computeDispatcher`, `ioDispatcher` and `clockMillis` exist so the
+    Phase 6 tests can be deterministic without a single new dependency; production
+    code never passes them.
+29. **Duplicate suppression is one second, command-value based.** It absorbs a
+    doubled recogniser callback or a double tap; it never merges two *different*
+    commands, and it does not suppress a deliberate repeat after the window.
 8. **`local.properties` is not committed.** It contains the SDK path of the
    machine that built the project. Android Studio regenerates it automatically.
 
@@ -224,7 +284,7 @@ response / `PHASE1.md`.
 ```bash
 cd ARIA
 ./gradlew :app:assembleDebug        # APK → app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest    # 45 unit tests, no device needed
+./gradlew :app:testDebugUnitTest    # 242 unit tests, no device needed
 ./gradlew :app:installDebug         # install on a connected device
 
 # Phase 3 acceptance (all three must pass before calling it done):
@@ -285,8 +345,9 @@ A phase is finished only when *all* of these are true:
   (`-Xmx720m`, `--max-workers=1`, `kotlin.compiler.execution.strategy=in-process`).
   **Your own machine does not need any of that** — the committed
   `gradle.properties` uses normal settings.
-- Samsung devices: sound-mode changes (Phase 11) may require
-  "Do Not Disturb access"; this will be detected and explained to the user then.
+- Samsung devices: sound-mode changes require "Do Not Disturb access" on many
+  builds. As of Phase 6 ARIA detects it, changes nothing, and explains it — it
+  never requests or grants that access itself.
 - The agent sandbox used for Phase 2 had **no JDK and no Android SDK**, and its
   network allowlist does not include `services.gradle.org` or Google's Maven repo,
   so Gradle cannot provision itself either. Android phases there can only be
@@ -296,6 +357,9 @@ A phase is finished only when *all* of these are true:
   `1.8.1`) and an explicit `material-icons-core` (it no longer arrives
   transitively from material3, and the settings gear needs it).
 - **Phase 3 added no dependencies at all** and changed no toolchain versions.
+- **Phase 6 added no dependencies and changed no versions either.** The whole
+  action layer is built on framework classes that were already available; the
+  tests use the `kotlinx-coroutines-test` that Phase 2 introduced.
 - Hand-reviewing Kotlin without a compiler is not free: Phase 3 shipped three real
   compile bugs that only a careful read caught (`event.error` accessed on the
   `when` subject instead of the smart-cast value, `Lazy.isInitialized` used on a

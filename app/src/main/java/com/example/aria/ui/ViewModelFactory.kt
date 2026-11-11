@@ -6,6 +6,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.example.aria.AriaApplication
+import com.example.aria.actions.ActionExecutor
+import com.example.aria.command.CommandParser
 import com.example.aria.permissions.AndroidPermissionChecker
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.voice.SpeechRecognizerManager
@@ -14,10 +16,11 @@ import com.example.aria.voice.TextToSpeechManager
 /**
  * Dependency wiring for the assistant screen — still no DI framework.
  *
- * WHY A FACTORY (and not Hilt/Koin): the graph is three objects (speech manager,
- * permission checker, ViewModel). A factory keeps the build fast and the project
- * readable. When the graph grows in Phase 6+, swapping in a container is a local
- * change because screens only ever ask for a ViewModel.
+ * WHY A FACTORY (and not Hilt/Koin): the graph is five collaborators (speech
+ * manager, microphone checker, speech engine, command parser, action executor).
+ * Still small enough that a factory keeps the build fast and the wiring visible;
+ * if it grows further, swapping in a container is a local change because screens
+ * only ever ask for a ViewModel.
  *
  * The application context arrives through `CreationExtras`, so nothing here can
  * hold an Activity.
@@ -28,7 +31,9 @@ fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
         AssistantViewModel(
             speechRecognizerManager = application.speechRecognizerManager,
             permissionChecker = AndroidPermissionChecker(application),
-            textToSpeechManager = application.textToSpeechManager
+            textToSpeechManager = application.textToSpeechManager,
+            commandParser = application.commandParser,
+            actionExecutor = application.actionExecutor
         )
     }
 }
@@ -40,7 +45,9 @@ fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
 class AssistantViewModelFactory(
     private val speechRecognizerManager: SpeechRecognizerManager,
     private val permissionChecker: MicrophonePermissionChecker,
-    private val textToSpeechManager: TextToSpeechManager
+    private val textToSpeechManager: TextToSpeechManager,
+    private val commandParser: CommandParser,
+    private val actionExecutor: ActionExecutor
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -50,7 +57,9 @@ class AssistantViewModelFactory(
         return AssistantViewModel(
             speechRecognizerManager = speechRecognizerManager,
             permissionChecker = permissionChecker,
-            textToSpeechManager = textToSpeechManager
+            textToSpeechManager = textToSpeechManager,
+            commandParser = commandParser,
+            actionExecutor = actionExecutor
         ) as T
     }
 }

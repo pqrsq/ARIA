@@ -23,6 +23,44 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+
+        <!--
+            PHASE 6 — package visibility for the actions ARIA performs.
+
+            Since Android 11 (API 30) querying PackageManager returns only what is
+            declared here. Each entry below is the *narrowest* form that makes one
+            Phase 6 feature work, and each is paired with a scheme/host or a
+            category so it cannot be read as a blanket "see all apps" request.
+
+            WHY NOT QUERY_ALL_PACKAGES: that permission is for apps whose core
+            function is a device-wide app inventory (launchers, antivirus). ARIA
+            only launches apps the user names, so an unscoped query would be both
+            disproportionate and a Play Store policy problem.
+        -->
+
+        <!-- "open Chrome" — every app with a launcher icon becomes a candidate. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+
+        <!-- "open maps" / "find a cafe" — geo: URIs. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+
+        <!-- "navigate to X" — the de-facto turn-by-turn scheme. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+
+        <!-- "play music" — makes the CATEGORY_APP_MUSIC selector resolvable. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_MUSIC" />
+        </intent>
     </queries>
 
     <application
