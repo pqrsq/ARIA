@@ -56,12 +56,16 @@ device.
   state, both factories, `AriaApplication`, the manifest and the preview/test
   sample data. `AssistantCommand`, `AudioStream`, the parser and every Gradle
   file are **unchanged**.
-- 242 unit test methods are written (125 before + 117 new) and 6 instrumented.
+- 257 unit test methods are written (125 before + 132 new) and 6 instrumented.
 - ⚠️ **Nothing in Phase 6 has been compiled.** No JDK, no Android SDK and no
   route to Google's Maven repo in the sandbox. Run
   `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
 - See `docs/PHASE6.md` §10 for exactly what was and was not verified, and §11 for
-  the 23-step manual test script.
+  the manual test script.
+- The first real builds (by the owner) found four defects, one of them a genuine
+  product bug (a spoken failure turned the card green). All are fixed and recorded
+  in `docs/PHASE6-fixes.md`, which is the most useful document in this repo for
+  understanding *why* the honesty rules matter.
 
 ---
 
@@ -284,7 +288,7 @@ response / `PHASE1.md`.
 ```bash
 cd ARIA
 ./gradlew :app:assembleDebug        # APK → app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest    # 242 unit tests, no device needed
+./gradlew :app:testDebugUnitTest    # 257 unit tests, no device needed
 ./gradlew :app:installDebug         # install on a connected device
 
 # Phase 3 acceptance (all three must pass before calling it done):
