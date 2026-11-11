@@ -559,7 +559,7 @@ class AssistantViewModel(
             }
 
             TtsEvent.SpeakStarted -> _uiState.update {
-                if (it.lastSpokenText == null) it
+                if (it.lastSpokenText == null || it.status == AssistantStatus.ERROR) it
                 else it.copy(status = AssistantStatus.SPEAKING)
             }
 
