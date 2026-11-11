@@ -305,7 +305,6 @@ private fun AssistantContentPreview() {
                 // PHASE 6 preview data: a real parsed command and its result, so
                 // the sample matches what the screen now actually receives.
                 commandType = "VOLUME_DOWN",
-                commandLabel = "Volume Down",
                 handler = "VolumeActionHandler",
                 status = AssistantStatus.SUCCESS,
                 message = "Media volume down to 47%."
