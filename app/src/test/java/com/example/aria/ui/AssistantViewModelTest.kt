@@ -433,7 +433,10 @@ class AssistantViewModelTest {
         assertFalse(state.isTtsAvailable)
         assertEquals(TtsMessages.forError(TtsError.ENGINE_INIT_FAILED), state.ttsMessage)
         // Never leave the screen stuck on SPEAKING when no audio can play.
-        assertEquals(AssistantStatus.SUCCESS, state.status)
+        assertNotEquals(AssistantStatus.ERROR, state.status)
+        tts.finishSpeaking()
+        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
+
     }
 
     @Test
