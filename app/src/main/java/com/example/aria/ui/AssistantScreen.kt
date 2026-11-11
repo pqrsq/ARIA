@@ -53,7 +53,6 @@ import com.example.aria.ui.components.SectionHeader
 import com.example.aria.ui.components.StatusCard
 import com.example.aria.ui.theme.AriaColors
 import com.example.aria.ui.theme.AriaTheme
-import com.example.aria.voice.SpeechMessages
 
 /**
  * The one screen of Version 1.
@@ -303,10 +302,13 @@ private fun AssistantContentPreview() {
                 id = 1,
                 timestampMillis = 0L,
                 rawSpeech = "Turn the volume down",
-                commandType = AssistantViewModel.NO_COMMAND_YET,
-                handler = AssistantViewModel.PHASE_2_HANDLER_LABEL,
+                // PHASE 6 preview data: a real parsed command and its result, so
+                // the sample matches what the screen now actually receives.
+                commandType = "VOLUME_DOWN",
+                commandLabel = "Volume Down",
+                handler = "VolumeActionHandler",
                 status = AssistantStatus.SUCCESS,
-                message = SpeechMessages.CAPTURED_NOT_EXECUTED
+                message = "Media volume down to 47%."
             )
         )
     )

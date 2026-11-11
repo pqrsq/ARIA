@@ -2,6 +2,11 @@ package com.example.aria.ui
 
 import androidx.lifecycle.ViewModelStore
 import com.example.aria.MainDispatcherRule
+import com.example.aria.actions.ExecutionResult
+import com.example.aria.actions.FakeActionExecutor
+import com.example.aria.command.AssistantCommand
+import com.example.aria.command.CommandParser
+import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
 import com.example.aria.voice.FakeTextToSpeechManager
@@ -29,6 +34,7 @@ import org.junit.Test
  * [com.example.aria.voice.TextToSpeechManager] and [MicrophonePermissionChecker]:
  * the interesting logic is testable in milliseconds.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AssistantViewModelTest {
 
     @get:Rule
@@ -36,6 +42,12 @@ class AssistantViewModelTest {
 
     private val speech = FakeSpeechRecognizerManager()
     private val tts = FakeTextToSpeechManager()
+
+    /** PHASE 6: the real parser (it is pure Kotlin, so it is safe in a JVM test). */
+    private val parser: CommandParser = RuleBasedCommandParser()
+
+    /** PHASE 6: an executor whose answer each test decides. */
+    private val executor = FakeActionExecutor()
 
     private fun viewModel(
         hasPermission: Boolean = true,
@@ -47,7 +59,14 @@ class AssistantViewModelTest {
         return AssistantViewModel(
             speechRecognizerManager = speech,
             permissionChecker = MicrophonePermissionChecker { hasPermission },
-            textToSpeechManager = tts
+            textToSpeechManager = tts,
+            commandParser = parser,
+            actionExecutor = executor,
+            // PHASE 6: the pipeline hops to Default/IO in production. These tests
+            // assert synchronously right after an event, so both hops are pointed
+            // at the unconfined test dispatcher and complete inline.
+            computeDispatcher = mainDispatcherRule.testDispatcher,
+            ioDispatcher = mainDispatcherRule.testDispatcher
         )
     }
 
@@ -165,13 +184,17 @@ class AssistantViewModelTest {
         assertEquals(AssistantStatus.SPEAKING, state.status)
         assertEquals("Turn the volume down", state.rawSpeech)
         assertEquals("turn the volume down", state.normalizedText)
-        assertEquals(AssistantViewModel.NO_COMMAND_YET, state.commandType)
-        assertEquals(SpeechMessages.CAPTURED_NOT_EXECUTED, state.message)
         assertEquals(1, state.history.size)
         assertEquals("Turn the volume down", state.history.first().rawSpeech)
         assertEquals(AssistantStatus.SUCCESS, state.history.first().status)
-        // Phase 2 must not invent a command it cannot parse yet.
-        assertNull("No command label before Phase 5", state.commandLabel)
+        // PHASE 6: the transcript is finally parsed and executed, so the fields
+        // that Phase 2 left as placeholders now carry real values.
+        assertEquals("VOLUME_DOWN", state.commandType)
+        assertEquals("Volume Down", state.commandLabel)
+        assertEquals("VolumeActionHandler", state.handler)
+        assertEquals(ExecutionResult.Success(DEFAULT_REPLY).message, state.message)
+        assertEquals("Exactly one execution per utterance", 1, executor.executed.size)
+        assertEquals(AssistantCommand.VolumeDown, executor.executed.first())
     }
 
     @Test
@@ -277,14 +300,19 @@ class AssistantViewModelTest {
     // --- PHASE 3: speaking back ---------------------------------------------
 
     @Test
-    fun `a captured sentence is acknowledged out loud`() {
+    fun `a captured sentence is acknowledged out loud, then the result is spoken`() {
         val vm = viewModel()
 
         vm.speakOnce("turn the volume down")
 
-        assertEquals(listOf(TtsAcknowledgements.forTurn(0)), tts.spoken)
-        assertEquals(TtsAcknowledgements.forTurn(0), vm.uiState.value.spokenReply)
-        assertEquals(TtsAcknowledgements.forTurn(0), vm.uiState.value.lastSpokenText)
+        // PHASE 6: two utterances — the acknowledgement while the action runs,
+        // then the honest result sentence.
+        assertEquals(
+            listOf(TtsAcknowledgements.forTurn(0), DEFAULT_REPLY),
+            tts.spoken
+        )
+        assertEquals(DEFAULT_REPLY, vm.uiState.value.spokenReply)
+        assertEquals(DEFAULT_REPLY, vm.uiState.value.lastSpokenText)
         assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
     }
 
@@ -295,7 +323,9 @@ class AssistantViewModelTest {
         vm.speakOnce()
 
         // A muted or broken engine must never leave the user without the reply.
-        assertEquals(TtsAcknowledgements.forTurn(0), vm.uiState.value.spokenReply)
+        // PHASE 6: the visible reply is the command result, which is more useful
+        // than the neutral acknowledgement it replaces.
+        assertEquals(DEFAULT_REPLY, vm.uiState.value.spokenReply)
     }
 
     @Test
@@ -321,7 +351,7 @@ class AssistantViewModelTest {
 
         assertTrue("Muted means silent", tts.spoken.isEmpty())
         assertFalse(vm.uiState.value.ttsEnabled)
-        assertEquals(TtsAcknowledgements.forTurn(0), vm.uiState.value.spokenReply)
+        assertEquals(DEFAULT_REPLY, vm.uiState.value.spokenReply)
         // Nothing is playing, so the card must not claim to be speaking.
         assertNotEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
         assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
@@ -336,7 +366,8 @@ class AssistantViewModelTest {
         vm.onTtsEnabledChanged(true)
         vm.speakOnce("second")
 
-        assertEquals(1, tts.spoken.size)
+        // PHASE 6: the audible turn produces the acknowledgement and the result.
+        assertEquals(2, tts.spoken.size)
         assertEquals(TtsAcknowledgements.forTurn(0), tts.spoken.first())
         assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
     }
@@ -361,8 +392,16 @@ class AssistantViewModelTest {
         tts.finishSpeaking()
         vm.speakOnce("two")
 
-        assertEquals(2, tts.spoken.size)
-        assertNotEquals("The same phrase twice sounds broken", tts.spoken[0], tts.spoken[1])
+        // PHASE 6: each turn speaks an acknowledgement *and* the result sentence.
+        // The acknowledgement rotation must advance by exactly one per turn — that
+        // is what stops "the same phrase twice" sounding broken.
+        assertEquals(4, tts.spoken.size)
+        assertEquals(TtsAcknowledgements.forTurn(0), tts.spoken[0])
+        assertEquals(TtsAcknowledgements.forTurn(1), tts.spoken[2])
+        assertNotEquals("The same phrase twice sounds broken", tts.spoken[0], tts.spoken[2])
+        // ...and the result sentences are spoken in between, not instead.
+        assertEquals(DEFAULT_REPLY, tts.spoken[1])
+        assertEquals(DEFAULT_REPLY, tts.spoken[3])
     }
 
     @Test
@@ -467,7 +506,7 @@ class AssistantViewModelTest {
     fun `a new attempt clears the previous spoken reply`() {
         val vm = viewModel()
         vm.speakOnce()
-        assertEquals(TtsAcknowledgements.forTurn(0), vm.uiState.value.spokenReply)
+        assertEquals(DEFAULT_REPLY, vm.uiState.value.spokenReply)
 
         vm.onMicrophoneTapped()
 
@@ -487,5 +526,10 @@ class AssistantViewModelTest {
         assertEquals(1, tts.stopCount)
         assertEquals("The engine is Application-scoped, not ViewModel-scoped", 0, tts.shutdownCount)
         assertEquals(1, speech.releaseCount)
+    }
+
+    /** Reply the fake executor returns unless a test overrides it. */
+    private companion object {
+        const val DEFAULT_REPLY = "Media volume up to 60%."
     }
 }

@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.aria.ui.AssistantStatus
-import com.example.aria.ui.AssistantViewModel
 import com.example.aria.ui.AssistantUiState
 import com.example.aria.ui.components.StatusCard
 import com.example.aria.ui.theme.AriaTheme
@@ -34,8 +33,10 @@ class StatusCardTest {
                         status = AssistantStatus.SUCCESS,
                         rawSpeech = "Turn the volume down",
                         normalizedText = "turn the volume down",
-                        commandType = AssistantViewModel.NO_COMMAND_YET,
-                        message = com.example.aria.voice.SpeechMessages.CAPTURED_NOT_EXECUTED
+                        // PHASE 6: a parsed command with a real result, matching
+                        // what the ViewModel produces after execution.
+                        commandType = "VOLUME_DOWN",
+                        message = "Media volume down to 47%."
                     )
                 )
             }

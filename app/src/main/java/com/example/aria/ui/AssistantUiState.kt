@@ -107,7 +107,16 @@ data class AssistantUiState(
     /**
      * PHASE 3: why TTS is unavailable, ready to render. Null when all is well.
      */
-    val ttsMessage: String? = null
+    val ttsMessage: String? = null,
+    /**
+     * PHASE 6: the exact `Settings.ACTION_*` screen the last command needs the
+     * user to visit, carried by `ExecutionResult.RequiresPermission`. Null when
+     * nothing is missing.
+     *
+     * CARRIED, NOT LAUNCHED: ARIA reports which screen would help; opening it
+     * stays an explicit user decision (see docs/PHASE6.md, security rules).
+     */
+    val pendingSettingsAction: String? = null
 ) {
     /** True when there is at least one recognisable field worth showing. */
     val hasResult: Boolean

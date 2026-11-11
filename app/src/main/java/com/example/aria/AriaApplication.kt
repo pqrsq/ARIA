@@ -1,6 +1,10 @@
 package com.example.aria
 
 import android.app.Application
+import com.example.aria.actions.ActionExecutor
+import com.example.aria.actions.createAndroidActionExecutor
+import com.example.aria.command.CommandParser
+import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.voice.AndroidSpeechRecognizerManager
 import com.example.aria.voice.AndroidTextToSpeechManager
 import com.example.aria.voice.SpeechRecognizerManager
@@ -37,6 +41,28 @@ class AriaApplication : Application() {
 
     /** The app-wide speech engine. One per process. */
     val textToSpeechManager: TextToSpeechManager by textToSpeechLazy
+
+    /**
+     * PHASE 6 — the parser is stateless and pure, so one instance per process is
+     * plenty; a stale instance cannot exist.
+     */
+    val commandParser: CommandParser by lazy { RuleBasedCommandParser() }
+
+    /**
+     * PHASE 6 — the action executor and its handlers.
+     *
+     * WHY OWNED HERE: handlers read system services (`AudioManager`,
+     * `PackageManager`, `NotificationManager`) through thin adapters that hold the
+     * *application* context, so a single process-wide instance is correct and
+     * cannot leak an Activity. Building it lazily means a cold start that never
+     * speaks never touches `PackageManager`.
+     *
+     * Exposed as the [ActionExecutor] interface so the ViewModel depends on the
+     * contract, not on the Android implementation.
+     */
+    private val actionExecutorLazy = lazy { createAndroidActionExecutor(applicationContext) }
+
+    val actionExecutor: ActionExecutor by actionExecutorLazy
 
     /**
      * Releases both engines for a clean shutdown.
