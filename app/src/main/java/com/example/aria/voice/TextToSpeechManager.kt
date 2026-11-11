@@ -179,8 +179,8 @@ class AndroidTextToSpeechManager(
         if (isShutdown) return
         isShutdown = true
         ready = false
-        val engine = engine
-        engine?.let {
+        val current = engine
+        current?.let {
             runCatching { it.stop() }
             runCatching { it.shutdown() }
         }
