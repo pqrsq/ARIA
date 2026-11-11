@@ -12,9 +12,9 @@ coding agent. Keep it updated at the end of every phase.
 |---|---|---|
 | **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** |
 | **2** | Speech-to-text (microphone → `String`) | ✅ **done** |
-| **3** | Text-to-speech (reply out loud) | ✅ **done** (this phase) |
-| 4 | `AssistantCommand` model | ⬜ next |
-| 5 | Rule-based parser + unit tests | ⬜ |
+| **3** | Text-to-speech (reply out loud) | ✅ **done** |
+| **4** | `AssistantCommand` model | ✅ **done** (this phase) |
+| 5 | Rule-based parser + unit tests | ⬜ next |
 | 6 | `ActionExecutor` | ⬜ |
 | 7 | Volume actions | ⬜ |
 | 8 | Music actions | ⬜ |
@@ -36,21 +36,28 @@ coding agent. Keep it updated at the end of every phase.
 **Phase 2** was merged (`PR #1`) and verified by the owner on a physical Samsung
 device: speech-to-text works, permission is requested on tap, no crashes.
 
-**Phase 3 status — read this before trusting the build:**
-- 45 unit tests and 6 instrumented tests are written.
-- ⚠️ Phase 3 has **NOT** been compiled or run yet. The agent that wrote it again
-  had no JDK and no Android SDK (no `java` on `PATH`, `ANDROID_HOME` unset), so the
-  code was reviewed by hand instead of built. **The first thing to do next is
-  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`**,
-  fix whatever the compiler reports, then run the checklist in `docs/PHASE3.md`.
+**Phase 3** was merged (`PR #2`, `PR #3`) and verified by the owner on a physical
+Samsung device after two build fixes (a shadowed `val` in `shutdown()`, and one
+stale Phase 2 assertion). Speech round-trips and TTS is mute-able.
+
+**Phase 4 status — read this before trusting the build:**
+- 65 unit tests and 6 instrumented tests are written.
+- **Phase 4 is purely additive**: two new files in `command/` and one new test
+  file. No existing file was modified, so Phases 1-3 cannot regress.
+- ⚠️ Phase 4 has **NOT** been compiled. Same sandbox limitation (no JDK/SDK, no
+  access to Google's Maven repo). It is plain Kotlin with zero imports, so the
+  risk is much lower than Phase 3's — but "lower" is not "verified". Run
+  `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
 
 ---
 
 ## 2. What is intentionally NOT built yet
 
-Speech recognition (Phase 2) and speech output (Phase 3) **are** built. Still
-absent, on purpose: no command model (Phase 4), no parser (Phase 5), no actions
-(Phases 6-11), no persistence (Phase 12). A recognised sentence therefore ends as
+Speech recognition (Phase 2), speech output (Phase 3) and the command vocabulary
+(Phase 4) **are** built. Still absent, on purpose: no parser (Phase 5), no actions
+(Phases 6-11), no persistence (Phase 12). The command model exists but **nothing
+constructs one yet** — that is Phase 5's job, so the UI still records
+`NO_COMMAND_YET` and this is correct, not a missing wire-up. A recognised sentence therefore ends as
 a history row labelled `NO_COMMAND_YET`, with the card saying
 *"Speech captured. Understanding commands and performing actions comes in
 Phase 5."* and ARIA answering only with a neutral acknowledgement ("I heard you."
@@ -86,6 +93,12 @@ in between (parse → execute) has been written yet.
 - Every handler is independent and receives only what its command carries.
 - `CommandParser` stays an **interface** so a later phase can add an
   `LlmCommandParser` without touching the action layer.
+- **The command model stays pure Kotlin.** `command/` may not import `android.*`
+  (it currently imports nothing at all). Android concepts enter as domain enums
+  (`AudioStream`) and are mapped to platform constants only inside the executor.
+- **Nothing constructs an `AssistantCommand` except the parser.** Until Phase 5
+  exists, the UI keeps recording `NO_COMMAND_YET`; do not invent a fake producer
+  to "make it show up" — that is the Phase 1 "Simulate" mistake again.
 - No root, no hidden APIs, no accessibility abuse, no continuous recording.
 
 ### Where each concern goes
@@ -102,7 +115,7 @@ in between (parse → execute) has been written yet.
 | Permission *check* (Phase 2 ✅) | `permissions/PermissionManager.kt` |
 | Permission *dialog* (Phase 2 ✅) | `ui/MicrophonePermissionController.kt` (needs an Activity) |
 | TTS (Phase 3 ✅) | `voice/TextToSpeechManager.kt` (+ `TtsAcknowledgements.kt`, `TtsMessages.kt`) |
-| Command model (Phase 4) | `command/AssistantCommand.kt` |
+| Command model (Phase 4 ✅) | `command/AssistantCommand.kt` (+ `command/AudioStream.kt`) |
 | Parser interface + rules (Phase 5) | `command/CommandParser.kt`, `command/RuleBasedCommandParser.kt` |
 | Execution fan-out (Phase 6) | `actions/ActionExecutor.kt` + one handler per category |
 | Installed-app discovery (Phase 10) | `data/AppRepository.kt` |
@@ -162,6 +175,16 @@ in between (parse → execute) has been written yet.
 15. **Acknowledgements are a separate, pure object.** `TtsAcknowledgements` has no
     Android and no state, so the one part of TTS that can be exhaustively tested
     on the JVM is, and Phase 5 swaps its contents without touching the call site.
+16. **`AssistantCommand` is a `sealed interface`, not a `sealed class`.** Its
+    members share no implementation, so a sealed class would imply a base that
+    carries nothing. Members are `data object` (singleton) or `data class` (value).
+17. **The model carries `displayName` itself.** One fewer exhaustive `when` in the
+    UI, and a new command cannot ship without wording.
+18. **`SetVolume` validates in `init`; nothing else validates.** A numeric range is
+    objectively wrong at any layer, whereas "is this good enough speech to make a
+    command?" belongs to the parser.
+19. **Android audio streams are a domain enum (`AudioStream`).** The executor maps
+    it to `AudioManager` constants in one place, so the model stays JVM-testable.
 8. **`local.properties` is not committed.** It contains the SDK path of the
    machine that built the project. Android Studio regenerates it automatically.
 
