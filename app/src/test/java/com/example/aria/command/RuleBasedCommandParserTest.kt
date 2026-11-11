@@ -202,7 +202,7 @@ class RuleBasedCommandParserTest {
 
     @Test
     fun `multi-word app names are accepted`() {
-        assertParses("open Google Maps", AssistantCommand.OpenApp("Google Maps"))
+        assertParses("open Google Play", AssistantCommand.OpenApp("Google Play"))
     }
 
     // --- Settings ------------------------------------------------------------
