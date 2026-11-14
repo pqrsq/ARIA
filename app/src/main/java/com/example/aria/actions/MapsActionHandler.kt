@@ -48,7 +48,7 @@ class MapsActionHandler(
             ExecutionResult.Success(successMessage)
         } else {
             // The Phase 6 spec fixes this wording verbatim.
-            ExecutionResult.Failure(ActionMessages.NO_MAP_APP)
+            ExecutionResult.Failure(ActionMessages.NO_MAP_APP, FailureReason.NOT_SUPPORTED)
         }
 
     /** The exact URI strings, kept next to their tests. */

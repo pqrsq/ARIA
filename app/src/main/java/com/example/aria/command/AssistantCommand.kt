@@ -97,10 +97,12 @@ sealed interface AssistantCommand {
     /**
      * Set an absolute level.
      *
-     * [percentage] is normalised to 0..100 by [init] rather than trusted, so a
-     * parser slip (`SetVolume(150)`) becomes a clamped command instead of an
-     * `IllegalArgumentException` triggered by user speech. Clamping is a product
-     * decision: shouting "volume 150" should give maximum volume, not a crash.
+     * [percentage] is restricted to 0..100 by [init]. PHASE 6.5 (D11) changed the
+     * policy *before* this point: the parser no longer clamps an out-of-range
+     * number, it returns [Rejected] and tells the user the range — because
+     * clamping a misheard "-20" to 0 silently muted the phone, and clamping 150
+     * to 100 hid that the request was impossible. The `require` remains as a
+     * backstop for a programming slip, which is now the only way to reach it.
      */
     data class SetVolume(
         val percentage: Int,
@@ -131,6 +133,20 @@ sealed interface AssistantCommand {
      */
     data object MuteMedia : AssistantCommand {
         override val displayName: String get() = "Mute Media"
+    }
+
+    /**
+     * PHASE 6.5 — undo [MuteMedia].
+     *
+     * WHY IT IS ITS OWN COMMAND AND NOT `SetVolume(previousLevel)`: ARIA does not
+     * remember what the level was before the mute (that would be state the
+     * command model refuses to hold), and `ADJUST_UNMUTE` is the platform's own
+     * "restore the level you were muted from". It is also the only way to be
+     * honest: the handler reads the level back and reports what actually
+     * happened (see `VolumeActionHandler`).
+     */
+    data object UnmuteMedia : AssistantCommand {
+        override val displayName: String get() = "Unmute Media"
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -224,4 +240,46 @@ sealed interface AssistantCommand {
     data class Unknown(val rawText: String) : AssistantCommand {
         override val displayName: String get() = "Unknown Command"
     }
+
+    /**
+     * PHASE 6.5 — speech that *was* understood as a command, but cannot be
+     * carried out as asked, where saying "I didn't understand" would be a lie.
+     *
+     * ── WHY A COMMAND AND NOT AN EXCEPTION OR A PARSER FAILURE ───────────────
+     * Both cases carry information the user needs: *which* rule was violated and
+     * *why* the utterance was refused. Returning [Unknown] would throw that away
+     * and (in Phase 6) render a cheerful green "I didn't understand that
+     * command." — the wrong tone for "I can only handle one command at a time".
+     *
+     * A rejection is deliberately **not** an error: nothing went wrong with the
+     * device, the user simply asked for something out of scope. The executor maps
+     * it to a neutral card, distinct from both success and failure.
+     */
+    data class Rejected(val reason: RejectionReason) : AssistantCommand {
+        override val displayName: String get() = when (reason) {
+            RejectionReason.COMPOUND_SENTENCE -> "Rejected: two commands"
+            RejectionReason.VOLUME_OUT_OF_RANGE -> "Rejected: volume out of range"
+        }
+    }
+}
+
+/**
+ * PHASE 6.5 — why a recognised utterance was refused.
+ *
+ * WHY AN ENUM AND NOT A STRING: the executor turns the reason into the sentence
+ * the user hears, and the tests assert both the reason *and* the sentence. A
+ * string in the model would let the wording drift between parser and executor.
+ */
+enum class RejectionReason {
+    /** "set volume to 30 and turn off wifi" — two commands in one breath. */
+    COMPOUND_SENTENCE,
+
+    /**
+     * "volume 120", "volume -20".
+     *
+     * NOT clamped: clamping a typo like `-20` to 0 would silently mute the phone,
+     * and clamping 120 to 100 hides that the user asked for something impossible.
+     * Refusing and explaining is the honest response.
+     */
+    VOLUME_OUT_OF_RANGE
 }

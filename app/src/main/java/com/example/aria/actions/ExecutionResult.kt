@@ -28,6 +28,8 @@ package com.example.aria.actions
  *  - [NotSupported]      this device cannot do it at all (fixed volume, no map
  *                        app, missing settings screen). Not an error either: it
  *                        is a fact about the hardware, not about the attempt.
+ *  - [Rejected]          the words were understood, and ARIA declined on purpose
+ *                        ("I can only handle one command at a time."). Phase 6.5.
  *
  * HONESTY RULE: a handler returns [Success] only for the part of the work it
  * actually did. Launching an activity returns [Success] for *launching*, and the
@@ -45,8 +47,27 @@ sealed interface ExecutionResult {
     /** The action was carried out; [message] describes the visible effect. */
     data class Success(override val message: String) : ExecutionResult
 
-    /** The action was attempted and did not take effect. */
-    data class Failure(override val message: String) : ExecutionResult
+    /**
+     * The action was attempted and did not take effect.
+     *
+     * [reason] is METADATA (Phase 6.5, A1): it exists so callers can react to a
+     * *class* of failure later (analytics, retry, a different hint) without
+     * parsing the sentence. It has no effect on behaviour today, and it defaults
+     * to [FailureReason.UNKNOWN] so every existing call site still compiles.
+     */
+    data class Failure(
+        override val message: String,
+        val reason: FailureReason = FailureReason.UNKNOWN
+    ) : ExecutionResult
+
+    /**
+     * Speech was understood but deliberately not carried out.
+     *
+     * Distinct from [Failure] (nothing was attempted, so nothing failed) and from
+     * [NotUnderstood] (the words *were* understood). The UI gives it its own
+     * neutral colour: neither the green of success nor the red of failure.
+     */
+    data class Rejected(override val message: String) : ExecutionResult
 
     /** No command was recognised, so nothing was attempted. */
     data class NotUnderstood(override val message: String) : ExecutionResult
@@ -65,4 +86,37 @@ sealed interface ExecutionResult {
 
     /** This device cannot perform the action. */
     data class NotSupported(override val message: String) : ExecutionResult
+}
+
+/**
+ * PHASE 6.5 (A1) — the *kind* of failure, for callers that want more than prose.
+ *
+ * WHY THIS IS METADATA ONLY: the user-facing sentence stays in
+ * [com.example.aria.actions.ActionMessages] and remains the source of truth for
+ * what is said. This enum is for code: a future retry policy, a permission hint,
+ * or a bug report that groups failures by cause instead of by wording.
+ *
+ * [UNKNOWN] is the default so that adding a reason is never a breaking change.
+ */
+enum class FailureReason {
+    /** No better classification was supplied. */
+    UNKNOWN,
+
+    /** No installed app matched the spoken name. */
+    APP_NOT_FOUND,
+
+    /** Something accepted the name but nothing opened. */
+    LAUNCH_FAILED,
+
+    /** A permission the user must grant stands in the way. */
+    PERMISSION_DENIED,
+
+    /** The device cannot do this. */
+    NOT_SUPPORTED,
+
+    /** The request was well-formed but invalid (range, empty entity…). */
+    INVALID_PARAMETER,
+
+    /** A system service did not answer in time. */
+    TIMEOUT
 }

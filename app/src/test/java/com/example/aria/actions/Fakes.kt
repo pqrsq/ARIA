@@ -56,6 +56,10 @@ class FakeVolumeController(
             VolumeDirection.LOWER -> currentIndexValue =
                 (currentIndexValue - 1).coerceAtLeast(0)
             VolumeDirection.MUTE -> currentIndexValue = 0
+            // PHASE 6.5 (A3): a real unmute restores a non-zero level, so the
+            // fake must too — otherwise "unmute worked" is untestable.
+            VolumeDirection.UNMUTE -> currentIndexValue =
+                if (currentIndexValue == 0) 1 else currentIndexValue
         }
     }
 

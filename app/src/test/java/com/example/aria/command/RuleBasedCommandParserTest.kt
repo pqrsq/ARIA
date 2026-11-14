@@ -339,15 +339,26 @@ class RuleBasedCommandParserTest {
     // ═════════════════════════════════════════════════════════════════════════
 
     @Test
-    fun `volume above one hundred is clamped, not rejected`() {
-        // The Phase 4 model throws outside 0..100, so the parser must clamp first.
-        assertParses("volume 150", AssistantCommand.SetVolume(100))
-        assertParses("set volume to 9999", AssistantCommand.SetVolume(100))
+    fun `volume above one hundred is rejected, not clamped`() {
+        // PHASE 6.5 (D11) reversed the Phase 5 behaviour: clamping hid the fact
+        // that the request was impossible, so it is refused with an explanation.
+        assertParses(
+            "volume 150",
+            AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+        )
+        assertParses(
+            "set volume to 9999",
+            AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+        )
     }
 
     @Test
-    fun `negative volume is clamped to zero`() {
-        assertParses("volume -10", AssistantCommand.SetVolume(0))
+    fun `negative volume is rejected, not clamped to zero`() {
+        // Clamping to 0 would have muted the phone from a misheard number.
+        assertParses(
+            "volume -10",
+            AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+        )
     }
 
     @Test
@@ -384,14 +395,22 @@ class RuleBasedCommandParserTest {
     }
 
     @Test
-    fun `every parsed volume level is inside the model's valid range`() {
-        // Guards against any future clamping regression producing an exception.
+    fun `a parsed volume level is always inside the model's valid range`() {
+        // PHASE 6.5 (D11): the model's `require` must never fire from speech, so
+        // every volume utterance either yields an in-range SetVolume or a refusal.
         listOf("volume 0", "volume 100", "volume 150", "volume -5", "volume 777")
             .forEach { input ->
                 val command = parser.parse(input)
-                assertTrue("Expected SetVolume for \"$input\"", command is AssistantCommand.SetVolume)
-                val level = (command as AssistantCommand.SetVolume).percentage
-                assertTrue("Level $level out of range for \"$input\"", level in 0..100)
+                when (command) {
+                    is AssistantCommand.SetVolume ->
+                        assertTrue(
+                            "Level ${command.percentage} out of range for \"$input\"",
+                            command.percentage in 0..100
+                        )
+
+                    is AssistantCommand.Rejected -> Unit
+                    else -> throw AssertionError("Expected SetVolume or Rejected for \"$input\", was $command")
+                }
             }
     }
 

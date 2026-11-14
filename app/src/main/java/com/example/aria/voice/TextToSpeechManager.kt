@@ -55,14 +55,46 @@ sealed interface TtsEvent {
     /** The engine cannot be used. [error] says why. */
     data class Unavailable(val error: TtsError) : TtsEvent
 
-    /** Audio for one utterance has begun. */
-    data object SpeakStarted : TtsEvent
+    /**
+     * Audio for one utterance has begun.
+     *
+     * [utteranceId] identifies WHICH utterance (Phase 6.5, D7). The ViewModel
+     * tracks the utterance it is waiting for and ignores events for any other,
+     * so a late callback from a superseded reply cannot rewrite a newer card.
+     */
+    data class SpeakStarted(val utteranceId: String? = null) : TtsEvent
 
     /** The utterance finished, or was stopped by ARIA itself. */
-    data object SpeakFinished : TtsEvent
+    data class SpeakFinished(val utteranceId: String? = null) : TtsEvent
 
     /** A speak request was rejected or failed mid-utterance. */
-    data object SpeakFailed : TtsEvent
+    data class SpeakFailed(val utteranceId: String? = null) : TtsEvent
+}
+
+/**
+ * PHASE 6.5 (D7) — how a new utterance relates to whatever is already speaking.
+ *
+ * WHY THIS EXISTS: the acknowledgement ("I heard you.") is spoken *before* the
+ * action runs, and the result sentence follows milliseconds later. With a single
+ * "interrupt" behaviour the result cut the acknowledgement off mid-word, which
+ * sounded like a glitch. Two modes are needed, and they must be visible at the
+ * call site rather than hidden in the engine wrapper.
+ */
+enum class SpeakPriority {
+    /**
+     * Interrupt whatever is playing (platform `QUEUE_FLUSH`).
+     *
+     * Used for a NEW user utterance: barge-in is a feature — ARIA must stop
+     * talking when the user starts speaking.
+     */
+    REPLACE,
+
+    /**
+     * Speak after the current utterance finishes (platform `QUEUE_ADD`).
+     *
+     * Used for the result sentence, so it never cuts the acknowledgement.
+     */
+    APPEND
 }
 
 /**
@@ -81,12 +113,15 @@ interface TextToSpeechManager {
     val isReady: Boolean
 
     /**
-     * Speaks [text], interrupting anything already queued.
+     * Speaks [text]. Whether it interrupts or queues behind the current utterance
+     * is the implementation's decision — see [SpeakPriority].
      *
-     * @return false when nothing was queued (engine not ready, or shut down).
-     *   Callers must treat that as "no sound", never as an error to crash on.
+     * @return the utterance id when something was queued, or null when nothing
+     *   was (engine not ready, or shut down). Callers must treat null as "no
+     *   sound", never as an error to crash on. Phase 6.5 (D7): returning the id
+     *   lets the ViewModel match later events to the utterance it is waiting for.
      */
-    fun speak(text: String): Boolean
+    fun speak(text: String, priority: SpeakPriority = SpeakPriority.REPLACE): String?
 
     /** Stops the current utterance immediately, if any. */
     fun stop()
@@ -140,31 +175,36 @@ class AndroidTextToSpeechManager(
         initialise()
     }
 
-    override fun speak(text: String): Boolean {
+    override fun speak(text: String, priority: SpeakPriority): String? {
         val engine = engine
-        if (isShutdown || !ready || engine == null || text.isBlank()) return false
+        if (isShutdown || !ready || engine == null || text.isBlank()) return null
 
         val utteranceId = "aria-${utteranceCounter.incrementAndGet()}"
+        val queueMode = when (priority) {
+            SpeakPriority.REPLACE -> TextToSpeech.QUEUE_FLUSH
+            SpeakPriority.APPEND -> TextToSpeech.QUEUE_ADD
+        }
+
         val result = try {
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            engine.speak(text, queueMode, null, utteranceId)
         } catch (illegalState: IllegalStateException) {
             // Defensive: an engine torn down mid-flight throws instead of failing.
             Log.w(TAG, "speak() rejected for $utteranceId", illegalState)
-            mutableEvents.tryEmit(TtsEvent.SpeakFailed)
-            return false
+            mutableEvents.tryEmit(TtsEvent.SpeakFailed(utteranceId))
+            return null
         }
 
         if (result != TextToSpeech.SUCCESS) {
             // Requirement: log and carry on. Never crash because audio failed.
             Log.w(TAG, "speak() returned $result for $utteranceId")
-            mutableEvents.tryEmit(TtsEvent.SpeakFailed)
-            return false
+            mutableEvents.tryEmit(TtsEvent.SpeakFailed(utteranceId))
+            return null
         }
 
         // Report immediately rather than waiting for onStart, so the UI reacts
         // the instant the user asks; the listener's onStart is idempotent.
-        mutableEvents.tryEmit(TtsEvent.SpeakStarted)
-        return true
+        mutableEvents.tryEmit(TtsEvent.SpeakStarted(utteranceId))
+        return utteranceId
     }
 
     override fun stop() {
@@ -172,7 +212,8 @@ class AndroidTextToSpeechManager(
         if (isShutdown || engine == null) return
         runCatching { engine.stop() }
         // Reflect the stop in the UI even if the platform stays silent about it.
-        if (ready) mutableEvents.tryEmit(TtsEvent.SpeakFinished)
+        // No id: this event is about "everything stopped", not one utterance.
+        if (ready) mutableEvents.tryEmit(TtsEvent.SpeakFinished())
     }
 
     override fun shutdown() {
@@ -244,27 +285,27 @@ class AndroidTextToSpeechManager(
     private val progressListener = object : UtteranceProgressListener() {
 
         override fun onStart(utteranceId: String?) {
-            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakStarted) }
+            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakStarted(utteranceId)) }
         }
 
         override fun onDone(utteranceId: String?) {
-            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFinished) }
+            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFinished(utteranceId)) }
         }
 
         // Superseded by onError(String, Int) but still called by some engines.
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onError(utteranceId: String?) {
             Log.w(TAG, "Utterance failed: $utteranceId")
-            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFailed) }
+            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFailed(utteranceId)) }
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
             Log.w(TAG, "Utterance failed: $utteranceId (code $errorCode)")
-            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFailed) }
+            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFailed(utteranceId)) }
         }
 
         override fun onStop(utteranceId: String?, interrupted: Boolean) {
-            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFinished) }
+            mainHandler.post { mutableEvents.tryEmit(TtsEvent.SpeakFinished(utteranceId)) }
         }
     }
 

@@ -30,9 +30,13 @@ class AndroidAudioVolumeController(
             VolumeDirection.RAISE -> AudioManager.ADJUST_RAISE
             VolumeDirection.LOWER -> AudioManager.ADJUST_LOWER
             VolumeDirection.MUTE -> AudioManager.ADJUST_MUTE
+            VolumeDirection.UNMUTE -> AudioManager.ADJUST_UNMUTE
         }
         // FLAG_SHOW_UI: a voice command that silently changes the volume looks
         // broken; the system OSD is the only feedback the user gets.
+        //
+        // A SecurityException (ring volume under Do Not Disturb) is deliberately
+        // NOT caught here — see AudioVolumeController.adjust.
         audioManager.adjustStreamVolume(stream, androidDirection, AudioManager.FLAG_SHOW_UI)
     }
 

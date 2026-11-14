@@ -15,7 +15,8 @@ coding agent. Keep it updated at the end of every phase.
 | **3** | Text-to-speech (reply out loud) | ✅ **done** |
 | **4** | `AssistantCommand` model | ✅ **done** |
 | **5** | Rule-based parser + unit tests | ✅ **done** |
-| **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** (this phase) |
+| **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** |
+| **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** (this phase) |
 | 7 | Volume actions | 🔀 folded into 6 |
 | 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
 | 9 | Maps actions | 🔀 folded into 6 |
@@ -66,6 +67,21 @@ device.
   product bug (a spoken failure turned the card green). All are fixed and recorded
   in `docs/PHASE6-fixes.md`, which is the most useful document in this repo for
   understanding *why* the honesty rules matter.
+
+**Phase 6.5 status — read this before trusting the build:**
+- Scope was **only** the audit items D1–D11 and A1–A3: no new command category, no
+  architecture change, no new dependency, no Gradle/AGP/Kotlin change.
+  `AssistantCommand` gained `UnmuteMedia` and `Rejected`, `ExecutionResult` gained
+  `Rejected` and `Failure.reason`, `AssistantStatus` gained `REJECTED`.
+- Two defects were *not* changed because they were already correct or the code did
+  not need touching: **A2** (`dispatchMediaKeyEvent` already sends DOWN + UP) was
+  verified only, and the "Open settings" feature (D2) is new UI but the only new
+  widget in the whole phase.
+- ⚠️ **Nothing in Phase 6.5 has been compiled or tested.** No JDK, no Android SDK,
+  no route to Google's Maven repo. Run
+  `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
+- `docs/PHASE6.5.md` holds the before/after table per defect, the decisions, the
+  limitations and the phone script. Phase 7 was **not** started.
 
 ---
 
@@ -168,6 +184,7 @@ need, through a small interface so the logic stays JVM-testable.
 | Installed-app discovery (Phase 6 ✅) | `actions/InstalledAppsProvider.kt` |
 | History persistence (Phase 12) | `history/CommandHistoryRepository.kt` |
 | Permission helpers (Phases 2, 6 ✅) | `permissions/PermissionManager.kt`, `permissions/PolicyAccessChecker.kt` |
+| Rejection vocabulary (Phase 6.5 ✅) | `actions/RejectionMessages.kt` (+ `AssistantCommand.Rejected`) |
 | Speech event/error vocabulary (Phase 2 ✅) | `voice/SpeechRecognizerManager.kt` |
 | Speech sentences shown to the user (Phase 2 ✅) | `voice/SpeechMessages.kt` |
 

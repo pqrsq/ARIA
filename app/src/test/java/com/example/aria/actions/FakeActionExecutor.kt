@@ -25,6 +25,12 @@ class FakeActionExecutor(
     override suspend fun execute(command: AssistantCommand): ExecutionResult {
         executed += command
         throwing?.let { throw it }
+        // PHASE 6.5: a Rejected command never reaches a handler, so mirroring the
+        // real executor here keeps "the parser refused this" observable in UI
+        // tests instead of being masked by whatever outcome a test scripted.
+        if (command is AssistantCommand.Rejected) {
+            return ExecutionResult.Rejected(RejectionMessages.forReason(command.reason))
+        }
         return result
     }
 }

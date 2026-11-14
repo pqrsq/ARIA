@@ -5,6 +5,8 @@ import com.example.aria.actions.ActionExecutor
 import com.example.aria.actions.createAndroidActionExecutor
 import com.example.aria.command.CommandParser
 import com.example.aria.command.RuleBasedCommandParser
+import com.example.aria.permissions.DndAccessChecker
+import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.AndroidSpeechRecognizerManager
 import com.example.aria.voice.AndroidTextToSpeechManager
 import com.example.aria.voice.SpeechRecognizerManager
@@ -47,6 +49,15 @@ class AriaApplication : Application() {
      * plenty; a stale instance cannot exist.
      */
     val commandParser: CommandParser by lazy { RuleBasedCommandParser() }
+
+    /**
+     * PHASE 6.5 (D2) — the permission seam the ViewModel re-checks when the app
+     * returns from Settings. Owned here so one instance serves the whole process
+     * and the ViewModel never touches `NotificationManager`.
+     */
+    val policyAccessChecker: PolicyAccessChecker by lazy {
+        DndAccessChecker.create(applicationContext)
+    }
 
     /**
      * PHASE 6 — the action executor and its handlers.

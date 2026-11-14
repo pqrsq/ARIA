@@ -48,7 +48,7 @@ class RuleBasedCommandParser : CommandParser {
         if (text.isEmpty) return AssistantCommand.Unknown("")
 
         // Each stage: first definitive answer wins.
-        return parsPhoneSoundMode(text)
+        val command = parsPhoneSoundMode(text)
             ?: parseSpecificSettings(text)
             ?: parseMapsOpen(text)
             ?: parseNavigate(text)
@@ -59,7 +59,11 @@ class RuleBasedCommandParser : CommandParser {
             ?: parseVolume(text)
             ?: parseMusicTransport(text)
             ?: parsePlayMusic(text)
-            ?: AssistantCommand.Unknown(rawText)
+            ?: return AssistantCommand.Unknown(rawText)
+
+        // PHASE 6.5 (D10): a recognised command whose sentence also asks for a
+        // second one must be refused, not silently half-executed.
+        return parseCompoundTail(text) ?: command
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -85,6 +89,18 @@ class RuleBasedCommandParser : CommandParser {
         )
         if (silentPatterns.any { it.containsMatchIn(phrase) } && !phrase.contains("volume")) {
             return AssistantCommand.SilentMode
+        }
+
+        // PHASE 6.5 (A3) — the mirror of "mute the phone". Documented decision:
+        // unmuting the *phone* is a ringer action, so it maps to NormalRingMode
+        // rather than to media unmuting. The object of the verb decides, exactly
+        // as it does for muting.
+        val unmutePhonePatterns = listOf(
+            Regex("\\bunmute\\s+(the\\s+)?(phone|device|ringer)\\b"),
+            Regex("\\bunsilence\\s+(the\\s+)?(phone|device|ringer)\\b")
+        )
+        if (unmutePhonePatterns.any { it.containsMatchIn(phrase) }) {
+            return AssistantCommand.NormalRingMode
         }
 
         val vibratePatterns = listOf(
@@ -176,9 +192,11 @@ class RuleBasedCommandParser : CommandParser {
      * "open YouTube", "launch Spotify", "start Instagram", "open app YouTube".
      *
      * WHY THE ENTITY IS REQUIRED TO LOOK LIKE A NAME: "open something" must be
-     * [AssistantCommand.Unknown]. A single common word after "open" is a sentence,
-     * not an app. Real app names are capitalised in speech-recognition output, or
-     * multi-word, or not in [STOP_WORDS].
+     * [AssistantCommand.Unknown]. What counts as "looks like a name" is decided by
+     * [looksLikeAppName] — which since Phase 6.5 (D3) does NOT consult the casing,
+     * because a real recogniser lowercases everything. Whether the name exists is
+     * then decided by [com.example.aria.actions.AppNameMatcher], against the
+     * installed-app list.
      */
     private fun parseOpenApp(text: NormalizedText): AssistantCommand? {
         val phrase = text.normalized
@@ -197,8 +215,13 @@ class RuleBasedCommandParser : CommandParser {
             }
 
             if (cleaned.lowercase() in NON_ENTITIES) return null
-            if (!looksLikeAppName(cleaned)) return null
-            return AssistantCommand.OpenApp(cleaned)
+            val name = stripAppNoise(cleaned)
+            if (name.isEmpty()) return null
+            if (!looksLikeAppName(name)) return null
+            // An app *called* "settings" is still the system settings screen: the
+            // specific/generic settings rules ran earlier and must win.
+            if (SETTINGS_APP_NAMES.contains(name.lowercase())) return null
+            return AssistantCommand.OpenApp(name)
         }
         return null
     }
@@ -206,24 +229,56 @@ class RuleBasedCommandParser : CommandParser {
     /**
      * True when [name] plausibly names an app rather than continuing a sentence.
      *
-     * Recogniser output preserves the speaker's capitalisation for proper nouns,
-     * so an internal capital letter is strong evidence. Otherwise the name must be
-     * either multi-word or a word that is not everyday English.
+     * ── PHASE 6.5 (D3): THE CAPITALISATION REQUIREMENT IS GONE ───────────────
+     * It used to demand a capital letter, on the theory that recogniser output
+     * preserves proper nouns. Real devices do not guarantee that — Samsung's
+     * recogniser lowercases everything — so on an actual phone "open chrome"
+     * parsed as [AssistantCommand.Unknown] while the same sentence typed with a
+     * capital letter worked. A rule that depends on the recogniser's casing is
+     * not a rule, it is a coin flip.
+     *
+     * The decision therefore belongs to
+     * [com.example.aria.actions.AppNameMatcher], which compares against the
+     * *actually installed* app list and reports an honest miss. The parser's job
+     * is only to rule out phrases that are plainly not names, which is what
+     * [NON_ENTITIES] and [STOP_WORDS] still do.
      */
     private fun looksLikeAppName(name: String): Boolean {
         if (name.isEmpty()) return false
-        if (name.lowercase() in NON_ENTITIES) return false
+        val lower = name.lowercase()
+        if (lower in NON_ENTITIES) return false
 
-        // A capital letter after the first character: "YouTube", "WhatsApp".
-        if (name.drop(1).any { it.isUpperCase() }) return true
+        // A known command word is never an app name ("open it", "open settings").
+        if (lower in STOP_WORDS) return false
 
-        // Multi-word names ("Google Maps") are names unless every word is filler.
+        // Multi-word: reject only when *every* word is filler ("open the thing").
         val words = name.split(WHITESPACE).filter { it.isNotBlank() }
-        if (words.size > 1) return words.none { it.lowercase() in STOP_WORDS }
+        if (words.isEmpty()) return false
+        if (words.size > 1) return words.any { it.lowercase() !in STOP_WORDS }
 
-        // Single word: accept it unless it is a common English word. Speech
-        // recognisers capitalise brand names, which is the signal we rely on.
-        return name.first().isUpperCase() && name.lowercase() !in STOP_WORDS
+        // A single word: anything not already excluded is a candidate, because the
+        // installed-app list is the only authority on whether it is a real app.
+        return true
+    }
+
+    /**
+     * PHASE 6.5 (D3) — removes the "how people say it" noise from an app name.
+     *
+     * "open the calculator" → "calculator"; "open the YouTube app" → "YouTube".
+     * The leading article and the trailing literal word "app" are command syntax,
+     * not part of the name. A bare "app" is never stripped from the *end* of a
+     * legitimate multi-word name because that word is always command syntax after
+     * "open".
+     */
+    private fun stripAppNoise(name: String): String {
+        var result = name.trim()
+        if (result.lowercase().startsWithWord("the")) {
+            result = stripLeadingPhrase(result, "the") ?: result
+        }
+        if (result.lowercase().endsWithWord("app")) {
+            result = stripTrailingPhrase(result, "app") ?: result
+        }
+        return result.trim()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -295,14 +350,36 @@ class RuleBasedCommandParser : CommandParser {
         parseSetVolume(phrase)?.let { return it }
 
         if (muteMedia(phrase)) return AssistantCommand.MuteMedia
+        if (unmuteMedia(phrase)) return AssistantCommand.UnmuteMedia
 
-        if (VOLUME_DOWN_PATTERNS.any { it.matches(phrase) || it.containsMatchIn(phrase) }) {
+        // PHASE 6.5 (D4): two different questions are asked, with two different
+        // rules — mixing them is exactly the bug that was fixed.
+        //  1. the BARE comparatives ("louder", "quieter") must be the WHOLE
+        //     utterance, so "the movie was louder than I expected" is a sentence;
+        //  2. the ANCHORED phrasings ("turn the volume down") may appear inside a
+        //     longer sentence, because their verb already carries the intent.
+        if (BARE_VOLUME_DOWN.any { it.matches(phrase) }) return AssistantCommand.VolumeDown
+        if (BARE_VOLUME_UP.any { it.matches(phrase) }) return AssistantCommand.VolumeUp
+
+        if (VOLUME_DOWN_PATTERNS.any { it.containsMatchIn(phrase) }) {
             return AssistantCommand.VolumeDown
         }
-        if (VOLUME_UP_PATTERNS.any { it.matches(phrase) || it.containsMatchIn(phrase) }) {
+        if (VOLUME_UP_PATTERNS.any { it.containsMatchIn(phrase) }) {
             return AssistantCommand.VolumeUp
         }
         return null
+    }
+
+    /**
+     * PHASE 6.5 (A3) — "unmute", "unmute the media", "turn the sound back on".
+     *
+     * WHOLE-UTTERANCE ONLY, for the same reason as [muteMedia]: "unmute it" is a
+     * sentence. The ringer mirror ("unmute the phone") is claimed earlier by the
+     * sound-mode stage, so media unmuting here can never silence a call.
+     */
+    private fun unmuteMedia(phrase: String): Boolean {
+        if (phrase == "unmute") return true
+        return UNMUTE_MEDIA_PATTERNS.any { it.matches(phrase) }
     }
 
     /**
@@ -315,6 +392,17 @@ class RuleBasedCommandParser : CommandParser {
     private fun muteMedia(phrase: String): Boolean {
         if (phrase == "mute") return true
         return MUTE_MEDIA_PATTERNS.any { it.matches(phrase) }
+    }
+
+    /**
+     * Removes [phrase] from the *end* of [text], keeping the rest as written.
+     * Null when nothing would remain (Phase 6.5, D3: "open app" is not a name).
+     */
+    private fun stripTrailingPhrase(text: String, phrase: String): String? {
+        val wordCount = phrase.split(WHITESPACE).count { it.isNotBlank() }
+        val words = text.split(WHITESPACE).filter { it.isNotBlank() }
+        if (words.size <= wordCount) return null
+        return words.dropLast(wordCount).joinToString(" ").trim().takeIf { it.isNotBlank() }
     }
 
     /**
@@ -332,10 +420,13 @@ class RuleBasedCommandParser : CommandParser {
      * Extracts an absolute volume level.
      *
      * NUMERIC RULES (Phase 5): digits only, no word numbers ("thirty" is not a
-     * number here — that stays [AssistantCommand.Unknown]). Out-of-range values
-     * are **clamped before construction**, because the Phase 4 model rejects
-     * anything outside 0..100 with `require`. Clamping here is what keeps a
-     * shouted "volume 150" working instead of throwing.
+     * number here — that stays [AssistantCommand.Unknown]).
+     *
+     * PHASE 6.5 (D11): out-of-range values are **refused, never clamped**. A
+     * misheard "-20" used to become a mute and a shouted "150" silently became
+     * 100; both hid a request the user did not make. They now return
+     * [AssistantCommand.Rejected] so the card can say
+     * "Volume must be between 0 and 100 percent."
      */
     private fun parseSetVolume(phrase: String): AssistantCommand? {
         if (!phrase.contains("volume")) return null
@@ -344,12 +435,21 @@ class RuleBasedCommandParser : CommandParser {
         // than silently matching some other rule.
         if (WORD_NUMBER.containsMatchIn(phrase)) return null
 
-        val match = VOLUME_LEVEL.find(phrase) ?: return null
-        val digits = match.groupValues[1].toIntOrNull() ?: return null
+        // PHASE 6.5 (D6): an EXPLICIT but unsupported stream is refused, not
+        // silently redirected to media. "set the notification volume to 50"
+        // applied to the media stream would be a silent wrong action.
+        if (UNSUPPORTED_STREAMS.any { phrase.containsWord(it) }) return null
 
-        // Clamp, do not throw. The model's require() is the safety net; this is
-        // the polite conversion.
-        val percentage = digits.coerceIn(0, 100)
+        val match = VOLUME_LEVEL.find(phrase) ?: return null
+        val digits = match.groupValues[1].toIntOrNull()
+            ?: return AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+
+        // PHASE 6.5 (D11): NO CLAMPING. A value outside 0..100 is refused with an
+        // explanation. Clamping -20 to 0 would mute the phone from a typo, and
+        // clamping 120 to 100 would hide that the request was impossible.
+        if (digits !in 0..100) {
+            return AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+        }
 
         val stream = when {
             phrase.containsWord("ring") || phrase.containsWord("ringer") -> AudioStream.RING
@@ -357,7 +457,79 @@ class RuleBasedCommandParser : CommandParser {
             else -> AudioStream.MEDIA
         }
 
-        return AssistantCommand.SetVolume(percentage, stream)
+        return AssistantCommand.SetVolume(digits, stream)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 11. Compound sentences (Phase 6.5, D10)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Detects "do X and also Y" WITHOUT splitting it into two commands.
+     *
+     * ── WHY THIS IS TAIL-ANALYSIS AND NOT A SPLIT ────────────────────────────
+     * Splitting on "and"/"," would destroy legitimate entities: "Rock and Roll",
+     * "Bath and Bristol", "Berlin, Germany". So the utterance is never cut up;
+     * instead the parser asks a narrower question — *after* a conjunction, does
+     * the remainder of the sentence look like a command of its own? Only then is
+     * the whole utterance refused.
+     *
+     * The tail counts as a command when either:
+     *  1. it parses to a real command on its own, or
+     *  2. it opens with a command verb-anchor AND carries meaningful content
+     *     ("turn off wifi", "open chrome"). Case 2 exists because some of those
+     *     tails are not command *shapes* yet (there is no "turn off wifi" rule),
+     *     but they are unmistakably a second request.
+     *
+     * Returns a [AssistantCommand.Rejected] or null. Pure, no state.
+     */
+    private fun parseCompoundTail(text: NormalizedText): AssistantCommand? {
+        val phrase = text.normalized
+        if (!CONJUNCTION.containsMatchIn(phrase)) return null
+
+        val tail = compoundTailAfter(phrase) ?: return null
+        if (tail.isEmpty()) return null
+
+        if (isRecognisableCommand(tail)) {
+            return AssistantCommand.Rejected(RejectionReason.COMPOUND_SENTENCE)
+        }
+
+        val anchor = COMPOUND_ANCHORS.firstOrNull { tail.startsWithWord(it) } ?: return null
+        // StartsWithWord also matches the tail being *only* the anchor, so the
+        // removal is guarded against an empty remainder.
+        val content = tail.substring(anchor.length).trim()
+        // "open and shut" — an anchor with no object is not a second request.
+        if (content.isEmpty() || content in NON_ENTITIES) return null
+
+        return AssistantCommand.Rejected(RejectionReason.COMPOUND_SENTENCE)
+    }
+
+    /**
+     * The words after the **last** conjunction, or null when the conjunction is
+     * part of an entity rather than a sentence boundary.
+     *
+     * WHY THE LAST ONE: in "set the volume to 30 and turn off wifi" the second
+     * request is the tail. Taking the last conjunction also means "play Rock and
+     * Roll and Dance" reports the more useful tail.
+     */
+    private fun compoundTailAfter(phrase: String): String? {
+        val match = CONJUNCTION.findAll(phrase).lastOrNull() ?: return null
+        return phrase.substring(match.range.last + 1).trim().takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * True when [tail] parses, on its own, to a command ARIA would actually carry
+     * out.
+     *
+     * WHY IT EXCLUDES [AssistantCommand.Unknown] AND [AssistantCommand.Rejected]:
+     * the question is "is this a second request?", and an unparseable tail is not.
+     * Recursion terminates because [parse] only reaches this method after a
+     * command has been found, and the tail is always strictly shorter than the
+     * whole utterance.
+     */
+    private fun isRecognisableCommand(tail: String): Boolean {
+        val command = parse(tail)
+        return command !is AssistantCommand.Unknown && command !is AssistantCommand.Rejected
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -475,6 +647,53 @@ class RuleBasedCommandParser : CommandParser {
             Regex("\\bput\\s+(the\\s+|my\\s+)?phone\\s+on\\s+silent\\b")
         )
 
+        /**
+         * PHASE 6.5 (A3): whole-utterance unmute phrasings for the media stream.
+         *
+         * "turn the sound back on" is deliberately absent — it is genuinely
+         * ambiguous between media and ringer (see docs/PHASE6.5.md), so it stays
+         * [AssistantCommand.Unknown] rather than guessing and getting it wrong.
+         */
+        val UNMUTE_MEDIA_PATTERNS = listOf(
+            Regex("unmute\\s+(the\\s+)?(media|music|audio|sound)"),
+            // "sound" is deliberately NOT an option here: "turn the sound back on"
+            // is genuinely ambiguous between media and ringer, so it stays
+            // [AssistantCommand.Unknown] instead of guessing.
+            Regex("turn\\s+(the\\s+)?(media|music|audio)\\s+(back\\s+)?on"),
+            Regex("unmute\\s+(the\\s+)?volume")
+        )
+
+        /**
+         * PHASE 6.5 (D6): stream qualifiers ARIA does not control.
+         *
+         * A phrase that names one of these must be refused, never redirected to
+         * the media stream — silently changing the wrong stream is worse than
+         * saying "I didn't understand that".
+         */
+        val UNSUPPORTED_STREAMS = setOf(
+            "notification", "notifications",
+            "call", "calls", "in-call",
+            "voice", "system", "speaker"
+        )
+
+        /** PHASE 6.5 (D10): app names that are really the settings screen. */
+        val SETTINGS_APP_NAMES = setOf(
+            "settings", "system settings", "the settings"
+        )
+
+        /** PHASE 6.5 (D10): sentence conjunctions that can join two commands. */
+        val CONJUNCTION = Regex("\\b(and|then|also)\\b|,")
+
+        /**
+         * PHASE 6.5 (D10): verbs that open a command, used to spot a second
+         * request in the tail of a sentence ("and turn off wifi").
+         */
+        val COMPOUND_ANCHORS = listOf(
+            "turn", "open", "set", "play", "navigate", "mute", "unmute",
+            "silence", "launch", "start", "find", "search", "increase",
+            "decrease", "raise", "lower", "skip", "pause", "resume", "make"
+        )
+
         val MUTE_MEDIA_PATTERNS = listOf(
             Regex("mute"),
             Regex("mute\\s+(the\\s+)?media"),
@@ -488,8 +707,24 @@ class RuleBasedCommandParser : CommandParser {
             Regex("\\bmake\\s+(it|the\\s+(phone|volume|music))\\s+(quieter|softer|lower)\\b"),
             Regex("\\bturn\\s+(it|the\\s+volume)\\s+down\\b"),
             Regex("\\bvolume\\s+down\\b"),
-            Regex("\\bquieter\\b"),
             Regex("\\b(decrease|reduce)\\s+(the\\s+)?(volume|sound)\\b")
+        )
+
+        /**
+         * PHASE 6.5 (D4) — bare comparatives, **whole utterance only**.
+         *
+         * WHY A SEPARATE LIST: the previous `\bquieter\b` pattern was asked with
+         * `containsMatchIn`, so any sentence containing the word changed the
+         * volume. These are only ever tested with [Regex.matches], so "the movie
+         * was louder than I expected" cannot match. "make it louder" is caught by
+         * the anchored list above instead.
+         */
+        val BARE_VOLUME_DOWN = listOf(
+            Regex("(quieter|softer|lower)(\\s+please)?")
+        )
+
+        val BARE_VOLUME_UP = listOf(
+            Regex("(louder|higher)(\\s+please)?")
         )
 
         val VOLUME_UP_PATTERNS = listOf(
@@ -498,7 +733,6 @@ class RuleBasedCommandParser : CommandParser {
             Regex("\\bmake\\s+(it|the\\s+(phone|volume|music))\\s+(louder|higher)\\b"),
             Regex("\\bturn\\s+(it|the\\s+volume)\\s+up\\b"),
             Regex("\\bvolume\\s+up\\b"),
-            Regex("\\blouder\\b"),
             Regex("\\b(increase|raise)\\s+(the\\s+)?(volume|sound)\\b")
         )
 
@@ -520,12 +754,18 @@ class RuleBasedCommandParser : CommandParser {
         )
 
         val NEXT_PATTERNS = listOf(
+            // PHASE 6.5 (D5): "play next song" is transport, not a music search.
+            // Transport is evaluated before parsePlayMusic, so these win.
+            Regex("play\\s+(the\\s+)?next\\s+(song|track)"),
             Regex("next\\s+(song|track)"),
             Regex("(skip|play)\\s+(this\\s+|the\\s+)?(song|track)"),
             Regex("skip\\s+(this|the|to\\s+the)\\s+(song|track|next)")
         )
 
         val PREVIOUS_PATTERNS = listOf(
+            // PHASE 6.5 (D5): "play previous track" is transport, not a search.
+            Regex("play\\s+(the\\s+)?previous\\s+(song|track)"),
+            Regex("play\\s+(the\\s+)?last\\s+(song|track)"),
             Regex("previous\\s+(song|track)"),
             Regex("(go\\s+)?back\\s+(one\\s+)?(song|track)"),
             Regex("go\\s+back"),
@@ -555,5 +795,9 @@ class RuleBasedCommandParser : CommandParser {
         /** True when [word] appears anywhere as a whole word. */
         fun String.containsWord(word: String): Boolean =
             Regex("\\b${Regex.escape(word)}\\b").containsMatchIn(this)
+
+        /** True when [word] is the last whole word (Phase 6.5, D3 "… app"). */
+        fun String.endsWithWord(word: String): Boolean =
+            Regex("\\b${Regex.escape(word)}\\s*$").containsMatchIn(this)
     }
 }

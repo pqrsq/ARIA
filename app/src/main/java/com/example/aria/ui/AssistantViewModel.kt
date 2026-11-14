@@ -10,10 +10,12 @@ import com.example.aria.actions.HandlerNames
 import com.example.aria.command.AssistantCommand
 import com.example.aria.command.CommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
+import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
 import com.example.aria.voice.SpeechMessages
 import com.example.aria.voice.SpeechRecognizerManager
+import com.example.aria.voice.SpeakPriority
 import com.example.aria.voice.TextToSpeechManager
 import com.example.aria.voice.TtsAcknowledgements
 import com.example.aria.voice.TtsError
@@ -64,11 +66,13 @@ import java.util.concurrent.atomic.AtomicLong
  * updates from the IO hop are applied back on Main via [withContext].
  *
  * ── TEST SEAMS ──────────────────────────────────────────────────────────────
- * The last three constructor parameters exist only so a JVM test can be
- * deterministic, and all three have production defaults that callers never
+ * The last four constructor parameters exist only so a JVM test can be
+ * deterministic, and all four have production defaults that callers never
  * override:
  *  - `computeDispatcher` — where the pure parser runs,
  *  - `ioDispatcher` — where the executor runs (system services, `startActivity`),
+ *  - `policyAccessChecker` — the Android-free seam that answers "did the user
+ *    grant Do Not Disturb access while they were away?" (Phase 6.5, D2),
  *  - `clockMillis` — so the one-second duplicate window can be asserted exactly
  *    instead of by sleeping (a timing-dependent test is worse than no test).
  * ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +87,13 @@ class AssistantViewModel(
     // "TEST SEAMS" note in the class KDoc for why these three exist.
     private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * PHASE 6.5 (D2) — asks whether Do Not Disturb access is now granted, so a
+     * return from Settings can retry the refused command. Injected as a port to
+     * keep this class Android-free.
+     */
+    private val policyAccessChecker: PolicyAccessChecker =
+        PolicyAccessChecker { false },
     private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) : ViewModel() {
 
@@ -118,6 +129,22 @@ class AssistantViewModel(
      */
     private var lastCommand: AssistantCommand? = null
     private var lastCommandAtMillis: Long = 0L
+
+    /**
+     * PHASE 6.5 (D7) — the utterance currently being spoken, if any.
+     *
+     * Used only to decide barge-in: when the user starts a new utterance, whatever
+     * ARIA is saying is stopped.
+     */
+    private var currentUtteranceId: String? = null
+
+    /**
+     * PHASE 6.5 (D7) — the utterance whose completion should settle the card.
+     *
+     * Events carrying any other id are ignored, so a late `SpeakFinished` from a
+     * superseded reply can no longer flip the status of a newer result.
+     */
+    private var awaitingUtteranceId: String? = null
 
     /**
      * How many *acknowledgements* have been spoken; drives the rotating reply.
@@ -278,30 +305,44 @@ class AssistantViewModel(
         // must never be presented as the answer to this one.
         executionJob?.cancel()
 
-        _uiState.update {
-            it.copy(
-                status = AssistantStatus.PROCESSING,
-                rawSpeech = text,
-                normalizedText = text.lowercase().trim(),
-                commandType = null,
-                commandLabel = null,
-                handler = null,
-                message = null,
-                spokenReply = null,
-                lastSpokenText = null
-            )
-        }
-
+        // PHASE 6.5 (D1): the card is NOT reset here. Parsing and the duplicate
+        // check must happen first, because a suppressed repeat has to leave the
+        // previous settled card exactly as it was — resetting to PROCESSING and
+        // then returning left the UI stuck on "Processing…" forever.
         executionJob = viewModelScope.launch {
             val command = withContext(computeDispatcher) { commandParser.parse(text) }
 
             if (isDuplicate(command)) {
-                // Nothing is executed twice; the existing card already describes
-                // the first, identical attempt.
+                // Nothing is executed twice, and nothing is republished: the card
+                // still describes the first, identical attempt, in a settled state.
                 return@launch
             }
             remember(command)
             val commandType = commandTypeFor(command)
+
+            // Only now, with real work to do, does the card start over.
+            _uiState.update {
+                it.copy(
+                    status = AssistantStatus.PROCESSING,
+                    rawSpeech = text,
+                    normalizedText = text.lowercase().trim(),
+                    commandType = null,
+                    commandLabel = null,
+                    handler = null,
+                    message = null,
+                    spokenReply = null,
+                    lastSpokenText = null,
+                    pendingSettingsAction = null,
+                    pendingCommand = null,
+                    pendingRawSpeech = null
+                )
+            }
+
+            // PHASE 6.5 (D7): a new utterance is the one case where barge-in is
+            // wanted — if ARIA is mid-sentence, the user talking must silence it.
+            currentUtteranceId?.let { textToSpeechManager.stop() }
+            currentUtteranceId = null
+            awaitingUtteranceId = null
 
             // Acknowledge now: the microphone is closed, so speech output no
             // longer overlaps the user's voice.
@@ -371,6 +412,10 @@ class AssistantViewModel(
                 // *hint*, never acted on: ARIA does not open settings by itself.
                 pendingSettingsAction = (result as? ExecutionResult.RequiresPermission)
                     ?.settingsIntentAction,
+                // PHASE 6.5 (D2): remember WHAT was refused so the grant can be
+                // acted on without asking the user to repeat themselves.
+                pendingCommand = if (result is ExecutionResult.RequiresPermission) command else null,
+                pendingRawSpeech = if (result is ExecutionResult.RequiresPermission) text else null,
                 isAwaitingPermission = false
             )
         }
@@ -392,6 +437,8 @@ class AssistantViewModel(
     private fun statusFor(result: ExecutionResult): AssistantStatus = when (result) {
         is ExecutionResult.Success -> AssistantStatus.SUCCESS
         is ExecutionResult.NotUnderstood -> AssistantStatus.SUCCESS
+        // PHASE 6.5: a deliberate refusal is neither a success nor a failure.
+        is ExecutionResult.Rejected -> AssistantStatus.REJECTED
         is ExecutionResult.Failure -> AssistantStatus.ERROR
         is ExecutionResult.NotSupported -> AssistantStatus.ERROR
         is ExecutionResult.RequiresPermission -> AssistantStatus.ERROR
@@ -448,17 +495,26 @@ class AssistantViewModel(
             return
         }
 
-        if (textToSpeechManager.speak(reply)) {
+        // PHASE 6.5 (D7): APPEND, so the result sentence queues behind the
+        // acknowledgement instead of cutting it off mid-word.
+        val utteranceId = textToSpeechManager.speak(reply, SpeakPriority.APPEND)
+
+        if (utteranceId != null) {
             // NOTE: [spokenTurns] is deliberately NOT incremented here. It exists
             // to rotate the fixed acknowledgement list; a result sentence is not
             // an acknowledgement, and counting it would make every second turn
             // skip a phrase.
+            currentUtteranceId = utteranceId
+            awaitingUtteranceId = utteranceId
             _uiState.update {
                 it.copy(
-                    // A failed command is spoken too, but the card keeps its
-                    // ERROR colour: SPEAKING would repaint a failure as neutral.
-                    status = if (it.status == AssistantStatus.ERROR) {
-                        AssistantStatus.ERROR
+                    // A failed action, or a deliberate refusal, is spoken too, but
+                    // the card keeps its own colour: SPEAKING would repaint a
+                    // failure or a rejection as a neutral success.
+                    status = if (it.status == AssistantStatus.ERROR ||
+                        it.status == AssistantStatus.REJECTED
+                    ) {
+                        it.status
                     } else {
                         AssistantStatus.SPEAKING
                     },
@@ -513,8 +569,10 @@ class AssistantViewModel(
             return
         }
 
-        if (textToSpeechManager.speak(reply)) {
+        val utteranceId = textToSpeechManager.speak(reply, SpeakPriority.REPLACE)
+        if (utteranceId != null) {
             spokenTurns++
+            currentUtteranceId = utteranceId
             _uiState.update {
                 it.copy(
                     status = AssistantStatus.SPEAKING,
@@ -558,29 +616,132 @@ class AssistantViewModel(
                 )
             }
 
-            TtsEvent.SpeakStarted -> _uiState.update {
-                if (it.lastSpokenText == null || it.status == AssistantStatus.ERROR) it
+            // PHASE 6.5 (D7): every utterance event is matched against the one
+            // being awaited. A late callback from a superseded reply is dropped
+            // instead of repainting the current card.
+            is TtsEvent.SpeakStarted -> _uiState.update {
+                if (it.lastSpokenText == null || isSettled(it.status)) it
                 else it.copy(status = AssistantStatus.SPEAKING)
             }
 
-            TtsEvent.SpeakFinished -> _uiState.update {
-                if (it.status == AssistantStatus.SPEAKING) {
-                    it.copy(status = AssistantStatus.SUCCESS)
-                } else {
-                    it
+            is TtsEvent.SpeakFinished -> {
+                // Accept the finish only for the utterance we are waiting on.
+                val isOurs = isCurrentUtterance(event.utteranceId)
+                if (isOurs) awaitingUtteranceId = null
+                _uiState.update { state ->
+                    if (!isOurs) {
+                        state
+                    } else if (state.status == AssistantStatus.SPEAKING) {
+                        // Settle to the colour the RESULT deserves, not to green:
+                        // a spoken failure must never end up looking successful.
+                        state.copy(status = settledStatusFor(state))
+                    } else {
+                        state
+                    }
                 }
             }
 
-            TtsEvent.SpeakFailed -> _uiState.update {
-                it.copy(
-                    status = if (it.status == AssistantStatus.SPEAKING) {
-                        AssistantStatus.SUCCESS
-                    } else {
-                        it.status
-                    },
-                    ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
-                )
+            is TtsEvent.SpeakFailed -> {
+                val isOurs = isCurrentUtterance(event.utteranceId)
+                if (isOurs) awaitingUtteranceId = null
+                _uiState.update { state ->
+                    state.copy(
+                        status = if (state.status == AssistantStatus.SPEAKING) {
+                            settledStatusFor(state)
+                        } else {
+                            state.status
+                        },
+                        ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
+                    )
+                }
             }
+        }
+    }
+
+    /**
+     * PHASE 6.5 (D7) — true when [utteranceId] is the utterance being awaited.
+     *
+     * A null id (the engine stopped everything, or a fake without ids) is
+     * accepted: those events are about "audio stopped", not about one utterance,
+     * and ignoring them would leave the card stuck on SPEAKING.
+     */
+    private fun isCurrentUtterance(utteranceId: String?): Boolean =
+        utteranceId == null || awaitingUtteranceId == null || utteranceId == awaitingUtteranceId
+
+    /**
+     * PHASE 6.5 (D7) — a status that must survive being spoken.
+     *
+     * `ERROR` and `REJECTED` describe the *result*, not the audio, so speech must
+     * never repaint them. This is the fix for the Phase 6 defect where a spoken
+     * failure ended up green.
+     */
+    private fun isSettled(status: AssistantStatus): Boolean =
+        status == AssistantStatus.ERROR || status == AssistantStatus.REJECTED
+
+    /**
+     * PHASE 6.5 (D7) — the colour to settle on when audio for the current result
+     * ends.
+     *
+     * Derived from the newest history row, which already records the *result's*
+     * own status: that keeps the card telling one story instead of inventing a
+     * second source of truth for "did it work?".
+     */
+    private fun settledStatusFor(state: AssistantUiState): AssistantStatus =
+        when (state.history.firstOrNull()?.status) {
+            AssistantStatus.ERROR -> AssistantStatus.ERROR
+            AssistantStatus.REJECTED -> AssistantStatus.REJECTED
+            else -> AssistantStatus.SUCCESS
+        }
+
+    /**
+     * PHASE 6.5 (D2) — called by the UI when the app returns to the foreground.
+     *
+     * The UI cannot know whether the user granted the permission while they were
+     * in Settings, so it simply reports "we are back". This method asks the
+     * injected port again and:
+     *
+     *  - if the permission is now granted AND a command was waiting on it, the
+     *    ORIGINAL command is retried (the user should not have to repeat
+     *    themselves), and the pending hint is cleared;
+     *  - if it is still missing, nothing changes: the hint and the pending command
+     *    stay, so the button remains available.
+     *
+     * WHY THE PORT AND NOT A DIRECT CHECK: the ViewModel must stay Android-free;
+     * [PolicyAccessChecker] is the seam that keeps this testable on the JVM.
+     *
+     * WHY NOT CLEAR ON LAUNCH: ARIA must not assume a trip to Settings succeeded.
+     * Returning from Settings is not evidence of a grant — only the port is.
+     */
+    fun onReturnedFromSettings() {
+        val state = _uiState.value
+        if (state.pendingSettingsAction == null) return
+        if (!policyAccessChecker.canChangeSoundModes()) {
+            // Still denied: keep the hint so the button stays visible.
+            return
+        }
+
+        val command = state.pendingCommand
+        val spokenText = state.pendingRawSpeech ?: state.rawSpeech ?: ""
+
+        _uiState.update {
+            it.copy(
+                pendingSettingsAction = null,
+                pendingCommand = null,
+                pendingRawSpeech = null
+            )
+        }
+
+        if (command == null) return
+
+        // Retry exactly what was understood, not a re-parse of the transcript.
+        // If the device still refuses, publish() re-arms the hint, so the button
+        // reappears rather than silently disappearing.
+        executionJob?.cancel()
+        executionJob = viewModelScope.launch {
+            remember(command)
+            acknowledgeOutLoud()
+            val result = executeSafely(command)
+            publish(spokenText, command, commandTypeFor(command), result)
         }
     }
 
@@ -676,6 +837,11 @@ class AssistantViewModel(
         // Phase 3: a leaked utterance would talk over whatever the user opened
         // next. Silence it for the same reason the microphone is closed.
         textToSpeechManager.stop()
+        // Phase 6.5 (D7): stop() emits an id-less SpeakFinished, but the ids must
+        // not survive a trip to the background — a later, unrelated utterance
+        // would otherwise be matched against one that no longer exists.
+        currentUtteranceId = null
+        awaitingUtteranceId = null
         _uiState.update {
             if (it.status == AssistantStatus.LISTENING ||
                 it.status == AssistantStatus.PROCESSING ||

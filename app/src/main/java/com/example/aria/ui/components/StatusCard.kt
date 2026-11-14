@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,7 +35,13 @@ import com.example.aria.ui.theme.AriaColors
 @Composable
 fun StatusCard(
     state: AssistantUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * PHASE 6.5 (D2) — invoked when the user taps "Open settings" on a
+     * permission-blocked result. The SCREEN performs the launch (it owns the
+     * Activity context); this card only reports the tap.
+     */
+    onOpenSettings: () -> Unit = {}
 ) {
     val accent = state.status.accentColor()
 
@@ -104,11 +112,31 @@ fun StatusCard(
             )
         }
 
+        // PHASE 6.5 (D2): a missing permission is only actionable if the user is
+        // told where to fix it. The button is a plain tap — ARIA never opens
+        // settings by itself, which is why the state carries the action instead
+        // of launching it.
+        if (state.pendingSettingsAction != null) {
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag(SETTINGS_BUTTON_TAG)
+            ) {
+                Text(
+                    text = stringResource(R.string.open_permission_settings),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = AriaColors.Accent
+                )
+            }
+        }
+
         if (state.debugMode) {
             DebugBlock(state = state)
         }
     }
 }
+
+/** Test tag for the permission button, so UI tests do not match on wording. */
+const val SETTINGS_BUTTON_TAG: String = "pending_settings_button"
 
 @Composable
 private fun LabelledValue(label: String, value: String) {
@@ -180,6 +208,7 @@ private fun AssistantStatus.displayLabel(): String = when (this) {
     AssistantStatus.SUCCESS -> "COMPLETED"
     AssistantStatus.ERROR -> "FAILED"
     AssistantStatus.SPEAKING -> "SPEAKING"
+    AssistantStatus.REJECTED -> "NOT DONE"
 }
 
 private fun AssistantStatus.accentColor(): Color = when (this) {
@@ -189,4 +218,6 @@ private fun AssistantStatus.accentColor(): Color = when (this) {
     AssistantStatus.SUCCESS -> AriaColors.Success
     AssistantStatus.ERROR -> AriaColors.Error
     AssistantStatus.SPEAKING -> AriaColors.Accent
+    // PHASE 6.5: a deliberate refusal is neutral — neither green nor red.
+    AssistantStatus.REJECTED -> AriaColors.TextSecondary
 }

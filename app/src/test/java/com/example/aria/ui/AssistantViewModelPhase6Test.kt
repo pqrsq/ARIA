@@ -9,6 +9,7 @@ import com.example.aria.command.AssistantCommand
 import com.example.aria.command.CommandParser
 import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
+import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
 import com.example.aria.voice.FakeTextToSpeechManager
 import com.example.aria.voice.SpeechError
@@ -64,7 +65,10 @@ class AssistantViewModelPhase6Test {
      *   itself — an earlier version defaulted it to `true` here and silently
      *   undid a test that had set it to `false` beforehand.
      */
-    private fun viewModel(ttsReady: Boolean = true): AssistantViewModel {
+    private fun viewModel(
+        ttsReady: Boolean = true,
+        dndGranted: Boolean = false
+    ): AssistantViewModel {
         speech.recognitionAvailable = true
         tts.isReady = ttsReady
         return AssistantViewModel(
@@ -75,7 +79,8 @@ class AssistantViewModelPhase6Test {
             actionExecutor = executor,
             computeDispatcher = dispatcher,
             ioDispatcher = dispatcher,
-            clockMillis = { nowMillis }
+            clockMillis = { nowMillis },
+            policyAccessChecker = PolicyAccessChecker { dndGranted }
         )
     }
 
@@ -407,6 +412,193 @@ class AssistantViewModelPhase6Test {
         assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
         tts.finishSpeaking()
         assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
+    }
+
+    // ── PHASE 6.5 ────────────────────────────────────────────────────────────
+
+    // D1 — duplicate suppression must not leave the card on PROCESSING.
+
+    @Test
+    fun `a suppressed duplicate leaves the card settled, never PROCESSING`() = runTest(dispatcher) {
+        // BEFORE: onFinalResult reset the card to PROCESSING *before* the
+        // duplicate check, then returned without publishing, so the UI sat on
+        // "Processing…" forever after a repeated command.
+        val vm = viewModel()
+
+        vm.say("volume up")
+        tts.finishSpeaking()
+        val settled = vm.uiState.value.status
+        assertEquals(AssistantStatus.SUCCESS, settled)
+
+        nowMillis += 300L
+        vm.say("volume up")
+
+        assertEquals("Executed once", 1, executor.executed.size)
+        assertNotEquals("Must not be stuck processing", AssistantStatus.PROCESSING, vm.uiState.value.status)
+        assertEquals("The earlier card is untouched", settled, vm.uiState.value.status)
+    }
+
+    @Test
+    fun `a suppressed duplicate keeps the earlier message and history`() = runTest(dispatcher) {
+        val vm = viewModel()
+
+        vm.say("volume up")
+        tts.finishSpeaking()
+        val firstMessage = vm.uiState.value.message
+
+        nowMillis += 200L
+        vm.say("volume up")
+
+        assertEquals(firstMessage, vm.uiState.value.message)
+        assertEquals(1, vm.uiState.value.history.size)
+    }
+
+    @Test
+    fun `a different command after a duplicate still runs`() = runTest(dispatcher) {
+        val vm = viewModel()
+
+        vm.say("volume up")
+        nowMillis += 100L
+        vm.say("volume down")
+
+        assertEquals(2, executor.executed.size)
+    }
+
+    // D2 — the permission hint is carried, and only a real grant retries.
+
+    @Test
+    fun `a permission refusal records the command to retry`() = runTest(dispatcher) {
+        executor.result = ExecutionResult.RequiresPermission(
+            ActionMessages.DO_NOT_DISTURB_REQUIRED,
+            SettingsActions.NOTIFICATION_POLICY_ACCESS
+        )
+        val vm = viewModel(dndGranted = false)
+
+        vm.say("silent mode")
+
+        val state = vm.uiState.value
+        assertEquals(SettingsActions.NOTIFICATION_POLICY_ACCESS, state.pendingSettingsAction)
+        assertEquals("silent mode", state.pendingRawSpeech)
+        assertEquals("The refused command is remembered", 1, executor.executed.size)
+    }
+
+    @Test
+    fun `returning from settings without the grant keeps the hint`() = runTest(dispatcher) {
+        executor.result = ExecutionResult.RequiresPermission(
+            ActionMessages.DO_NOT_DISTURB_REQUIRED,
+            SettingsActions.NOTIFICATION_POLICY_ACCESS
+        )
+        val vm = viewModel(dndGranted = false)
+        vm.say("silent mode")
+
+        vm.onReturnedFromSettings()
+
+        // Nothing was retried, and the button must still be available.
+        assertEquals(1, executor.executed.size)
+        assertEquals(
+            SettingsActions.NOTIFICATION_POLICY_ACCESS,
+            vm.uiState.value.pendingSettingsAction
+        )
+    }
+
+    @Test
+    fun `returning from settings after the grant retries the original command`() = runTest(dispatcher) {
+        executor.result = ExecutionResult.RequiresPermission(
+            ActionMessages.DO_NOT_DISTURB_REQUIRED,
+            SettingsActions.NOTIFICATION_POLICY_ACCESS
+        )
+        var granted = false
+        val vm = AssistantViewModel(
+            speechRecognizerManager = speech,
+            permissionChecker = MicrophonePermissionChecker { true },
+            textToSpeechManager = tts,
+            commandParser = parser,
+            actionExecutor = executor,
+            computeDispatcher = dispatcher,
+            ioDispatcher = dispatcher,
+            clockMillis = { nowMillis },
+            policyAccessChecker = PolicyAccessChecker { granted }
+        )
+        vm.say("silent mode")
+        assertEquals(
+            SettingsActions.NOTIFICATION_POLICY_ACCESS,
+            vm.uiState.value.pendingSettingsAction
+        )
+
+        granted = true
+        executor.result = ExecutionResult.Success("Silent mode is on.")
+        vm.onReturnedFromSettings()
+
+        assertNull("Cleared only after the grant", vm.uiState.value.pendingSettingsAction)
+        assertEquals(2, executor.executed.size)
+    }
+
+    // D7 — utterance ids and queueing.
+
+    @Test
+    fun `the result is appended so it does not cut the acknowledgement`() = runTest(dispatcher) {
+        // BEFORE: every utterance used QUEUE_FLUSH, so the result sentence cut the
+        // acknowledgement off mid-word.
+        val vm = viewModel()
+
+        vm.say("volume up")
+
+        assertEquals(
+            listOf(SpeakPriority.REPLACE, SpeakPriority.APPEND),
+            tts.priorities
+        )
+    }
+
+    @Test
+    fun `a stale finish event does not settle the current card`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.say("volume up")
+        val current = tts.lastUtteranceId()
+        assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
+
+        // A callback belonging to an older utterance arrives late.
+        tts.emit(TtsEvent.SpeakFinished(utteranceId = "some-old-utterance"))
+
+        assertEquals(
+            "A superseded utterance must not settle the card",
+            AssistantStatus.SPEAKING,
+            vm.uiState.value.status
+        )
+
+        // The real one settles it.
+        tts.emit(TtsEvent.SpeakFinished(current))
+        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
+    }
+
+    // D10 / D11 — a rejection is neutral, not green and not red.
+
+    @Test
+    fun `a rejected command renders as a neutral card`() = runTest(dispatcher) {
+        // Note: no executor result is stubbed — the real parser produces the
+        // Rejected command, so this also proves the two halves are wired together.
+        val vm = viewModel()
+
+        vm.say("set the volume to 30 percent and turn off wifi")
+
+        val state = vm.uiState.value
+        assertEquals(AssistantStatus.REJECTED, state.status)
+        assertEquals(ActionMessages.ONE_COMMAND_AT_A_TIME, state.message)
+        assertEquals(AssistantStatus.REJECTED, state.history.first().status)
+        // Speaking it must not repaint it as a success…
+        tts.finishSpeaking()
+        assertEquals(AssistantStatus.REJECTED, vm.uiState.value.status)
+    }
+
+    @Test
+    fun `an out-of-range volume reaches the card as a rejection`() = runTest(dispatcher) {
+        // End to end: real parser -> Rejected(VOLUME_OUT_OF_RANGE) -> neutral card.
+        val vm = viewModel()
+
+        vm.say("set the volume to 120 percent")
+
+        assertEquals(ActionMessages.VOLUME_OUT_OF_RANGE, vm.uiState.value.message)
+        assertEquals(AssistantStatus.REJECTED, vm.uiState.value.status)
+        assertTrue("Nothing may be executed", executor.executed.isEmpty())
     }
 
     @Test

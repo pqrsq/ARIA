@@ -26,7 +26,14 @@ interface AudioVolumeController {
     /** The stream's current index, for the read-back message. */
     fun currentIndex(stream: Int): Int
 
-    /** One step up, one step down, or mute — the `ADJUST_*` directions. */
+    /**
+     * One step up, one step down, mute or unmute — the `ADJUST_*` directions.
+     *
+     * MAY THROW `SecurityException`: adjusting `STREAM_RING` while Do Not Disturb
+     * is active is refused by the platform. The adapter does not swallow it,
+     * because only the handler knows how to turn it into an honest answer
+     * (Phase 6.5, D8).
+     */
     fun adjust(stream: Int, direction: VolumeDirection)
 
     /** Absolute set, clamped by the caller, with no UI shown by ARIA. */
@@ -37,5 +44,8 @@ interface AudioVolumeController {
 enum class VolumeDirection {
     RAISE,
     LOWER,
-    MUTE
+    MUTE,
+
+    /** PHASE 6.5 (A3) — undo a mute: `AudioManager.ADJUST_UNMUTE`. */
+    UNMUTE
 }

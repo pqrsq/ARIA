@@ -36,14 +36,20 @@ class AppActionHandler(
 
     private suspend fun openApp(appName: String): ExecutionResult {
         val match = AppNameMatcher.bestMatch(appName, apps.launcherApps())
-            ?: return ExecutionResult.Failure(ActionMessages.appNotFound(appName.trim()))
+            ?: return ExecutionResult.Failure(
+                ActionMessages.appNotFound(appName.trim()),
+                FailureReason.APP_NOT_FOUND
+            )
 
         return if (launcher.launch(LaunchSpec.AppPackage(match.packageName))) {
             ExecutionResult.Success("Opening ${match.label}.")
         } else {
             // Visible in the launcher list but not launchable: an app that is
             // disabled, or whose launch intent the system refused.
-            ExecutionResult.Failure(ActionMessages.appNotFound(appName.trim()))
+            ExecutionResult.Failure(
+                ActionMessages.appNotFound(appName.trim()),
+                FailureReason.LAUNCH_FAILED
+            )
         }
     }
 }
