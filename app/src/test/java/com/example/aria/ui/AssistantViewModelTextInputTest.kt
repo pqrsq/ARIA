@@ -100,7 +100,12 @@ class AssistantViewModelTextInputTest {
         val textState = byText.uiState.value
 
         // The command handed to the executor is identical…
-        assertEquals(voiceExecuted, executor.executed)
+        //
+        // NOT `executor.executed`: the fake is a shared field and accumulates
+        // across both runs, so comparing it to the run-1 snapshot would compare
+        // [VolumeDown] with [VolumeDown, VolumeDown] — a list-length mismatch, not
+        // a behaviour difference. The second run's slice is what is comparable.
+        assertEquals(voiceExecuted, executor.executed.drop(voiceExecuted.size))
 
         // …and so is everything the user sees.
         //

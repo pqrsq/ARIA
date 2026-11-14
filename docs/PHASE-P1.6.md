@@ -230,3 +230,33 @@ settled-status assertion, used in 4 places there).
 **Wider check:** every other test in the suite that asserts a settled status either
 calls `finishSpeaking()` first or asserts a state that is not speech-dependent
 (`REJECTED`, `ERROR`, `IDLE`, `PROCESSING`) — so no other test carries this defect.
+
+---
+
+## 10. Second build fix: a shared fake compared against itself
+
+One test still failed: `a typed command produces the same command, result and status as speech`.
+
+The test runs the same sentence **twice** — once by voice, once typed — using the
+**same** `FakeActionExecutor`, which accumulates every command it is asked to
+execute. It snapshotted `executor.executed` after run 1:
+
+```
+run 1 (voice): [VolumeDown]
+after run 2  : [VolumeDown, VolumeDown]
+assertion    : [VolumeDown] == [VolumeDown, VolumeDown]   → false
+```
+
+The pipeline was correct; the assertion compared a one-element snapshot with a
+two-element list. A length mismatch, not a behaviour difference.
+
+Fixed by comparing the second run's slice:
+
+```kotlin
+assertEquals(voiceExecuted, executor.executed.drop(voiceExecuted.size))
+```
+
+Audited the rest of the file for the same shape — a shared fake compared to itself
+across runs. The remaining comparisons (`tts.spoken`, `executor.executed`,
+`tts.spoken.size`) all occur in single-run, single-ViewModel tests, so this was the
+only instance.
