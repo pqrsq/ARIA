@@ -95,7 +95,7 @@ e270b335d5615535  app/src/test/java/com/example/aria/command/RuleBasedCommandPar
 b218d786bb776425  app/src/test/java/com/example/aria/ui/AssistantUiStateTest.kt
 c5541ed4d71f4229  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
 bae3b80e5cf0fa7e  app/src/test/java/com/example/aria/ui/AssistantViewModelTest.kt
-3024d4422d09566b  app/src/test/java/com/example/aria/ui/AssistantViewModelTextInputTest.kt
+1c2037fa0042a448  app/src/test/java/com/example/aria/ui/AssistantViewModelTextInputTest.kt
 ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerManager.kt
 3b46d65b01bd9638  app/src/test/java/com/example/aria/voice/FakeTextToSpeechManager.kt
 8306abd5ecbd66f3  app/src/test/java/com/example/aria/voice/SpeechMessagesTest.kt
@@ -103,7 +103,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 8cde6876af2ed692  artifacts/aria-phase1-androidTest.apk
 0981db0bdc16ae74  artifacts/aria-phase1-debug.apk
 16e0e9395413c907  build.gradle.kts
-a9ee5eb54c2a6cfe  docs/PHASE-P1.6.md
+fe12a156248454f9  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
 089f40b35ccb1460  docs/PHASE2.md
