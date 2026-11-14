@@ -62,6 +62,45 @@ class ParserCoverageTest {
     // ── P1.2 — trailing politeness ───────────────────────────────────────────
 
     @Test
+    fun `regression - the trailing strip never eats an ordinary last word`() {
+        // THE GUARD FOR THE WORST POSSIBLE REGRESSION IN THIS PHASE.
+        //
+        // stripTrailingFillers drops the last word only when it IS a courtesy
+        // phrase. If that condition is ever removed or weakened, every utterance
+        // loses its last word and then hits "" — normalize returns empty, the
+        // parser answers Unknown to everything, and 119 tests across the suite
+        // fail at once. That is exactly what happened when the unresolved
+        // `endsWithWord` call was deleted instead of being defined: the code
+        // compiled and the parser was silently dead.
+        //
+        // These inputs end in ordinary words, so the normalised view must be
+        // byte-identical and the command must still resolve.
+        assertEquals("volume up", TextNormalizer.normalize("volume up").normalized)
+        assertEquals("pause the music", TextNormalizer.normalize("pause the music").normalized)
+        assertEquals("hello there", TextNormalizer.normalize("hello there").normalized)
+        // Lowercased, because the normalised view is; only the WORD SET matters.
+        assertEquals(
+            "the movie was louder than i expected",
+            TextNormalizer.normalize("the movie was louder than I expected").normalized
+        )
+
+        assertEquals(AssistantCommand.VolumeUp, parse("volume up"))
+        assertEquals(AssistantCommand.PauseMusic, parse("pause the music"))
+        assertEquals(AssistantCommand.Unknown("hello there"), parse("hello there"))
+    }
+
+    @Test
+    fun `regression - only a real trailing courtesy phrase is dropped`() {
+        // The strip is conditional in BOTH directions: a courtesy is removed only
+        // from the END, and a word that merely CONTAINS it is untouched.
+        assertEquals("pause the music", TextNormalizer.normalize("pause the music please").normalized)
+        assertEquals("please pause the music", TextNormalizer.normalize("please pause the music").normalized)
+        assertEquals("pleased to meet you", TextNormalizer.normalize("pleased to meet you").normalized)
+        assertEquals("", TextNormalizer.normalize("please").normalized)
+        assertEquals("", TextNormalizer.normalize("thanks").normalized)
+    }
+
+    @Test
     fun `a trailing please no longer hides a transport command`() {
         // BEFORE: only LEADING fillers were stripped, so the trailing word made
         // the whole utterance unmatchable.
