@@ -60,9 +60,9 @@ object TextNormalizer {
     ).sortedByDescending { it.length }
 
     /** Punctuation that belongs to the sentence, not to an entity. */
-    private const val PUNCTUATION = ".,!?;:\u061F\u060C"
+    internal const val PUNCTUATION = ".,!?;:\u061F\u060C"
 
-    private val WHITESPACE = Regex("\\s+")
+    internal val WHITESPACE = Regex("\\s+")
 
     /**
      * Produces all three views of [raw].
@@ -77,7 +77,12 @@ object TextNormalizer {
         return NormalizedText(
             original = original,
             entitySource = entitySource,
-            normalized = toMatchable(entitySource)
+            // PHASE P1.2: trailing politeness is removed from the MATCHING view
+            // only. Removing it from [entitySource] too would rename entities —
+            // "play Please Please Please" would lose its last word — so entities
+            // are tidied only by the comma rule in [entityAfterPrefix] and by the
+            // parser's explicit app-name strip.
+            normalized = toMatchable(stripTrailingFillers(entitySource))
         )
     }
 
@@ -124,6 +129,38 @@ object TextNormalizer {
     }
 
     /**
+     * PHASE P1.2 — removes trailing politeness ("pause the music please").
+     *
+     * WHERE IT IS USED: only on the MATCHING view of an utterance (see
+     * [normalize]). Entity text is never run through this, because dropping the
+     * last word of "play Please Please Please" would rename a song.
+     *
+     * A single phrase is removed per pass and the loop stops when nothing matches,
+     * so "thanks, please" is cleaned without recursion, and an utterance that is
+     * *only* politeness still collapses to "" (the blank-input contract).
+     */
+    fun stripTrailingFillers(text: String): String {
+        var result = text
+        var changed = true
+        while (changed) {
+            changed = false
+            val matchable = toMatchable(result)
+            for (filler in TRAILING_COURTESY) {
+                if (matchable == filler) return ""
+                if (!matchable.endsWithWord(filler)) continue
+
+                val fillerWordCount = filler.split(WHITESPACE).size
+                val words = result.split(WHITESPACE).filter { it.isNotBlank() }
+                if (words.size <= fillerWordCount) return ""
+                result = words.dropLast(fillerWordCount).joinToString(" ")
+                changed = true
+                break
+            }
+        }
+        return result
+    }
+
+    /**
      * Cuts the entity that follows a normalised [prefix] out of
      * [NormalizedText.entitySource].
      *
@@ -142,10 +179,12 @@ object TextNormalizer {
         val words = normalized.entitySource.split(WHITESPACE).filter { it.isNotBlank() }
         if (words.size <= prefixWordCount) return null
 
-        val entity = words
-            .drop(prefixWordCount)
-            .joinToString(" ")
-            .trim()
+        val entity = stripTrailingCourtesyAfterComma(
+            words
+                .drop(prefixWordCount)
+                .joinToString(" ")
+                .trim()
+        )
             .trimEnd { it in PUNCTUATION }
             .trim()
 
@@ -156,6 +195,53 @@ object TextNormalizer {
 /** True when this matchable phrase starts with [word] as a whole word. */
 internal fun String.startsWithWord(word: String): Boolean =
     this == word || this.startsWith("$word ")
+
+/**
+ * PHASE P1.2 — drops ", please" / ", thanks" / ", thank you" from the end of an
+ * entity, **only when the comma is present**.
+ *
+ * WHY THE COMMA IS REQUIRED: without it, "play hello please" and "play Please
+ * Please Please" have the same shape, and stripping would rename a song. A comma
+ * is the speaker's own signal that the remainder is an aside, so it is the only
+ * safe boundary. Documented consequence: "play hello please" (no comma) keeps
+ * "please" in the title — an odd title is better than a silent rename.
+ *
+ * Positional, like every other trim in this file: words are dropped by count and
+ * the rest keeps the user's own capitalisation.
+ */
+internal fun stripTrailingCourtesyAfterComma(text: String): String {
+    var words = text.trim().split(TextNormalizer.WHITESPACE).filter { it.isNotBlank() }
+    if (words.isEmpty()) return text
+
+    var changed = true
+    while (changed && words.isNotEmpty()) {
+        changed = false
+        for (phrase in TRAILING_COURTESY) {
+            val phraseWords = phrase.split(TextNormalizer.WHITESPACE)
+            if (words.size < phraseWords.size) continue
+
+            // The courtesy phrase must really be at the end (case-insensitive)…
+            val tail = words.takeLast(phraseWords.size).map { it.lowercase().trimEnd { c -> c in TextNormalizer.PUNCTUATION } }
+            if (tail != phraseWords) continue
+
+            // …and the word BEFORE it must carry the comma: that is the signal.
+            val remaining = words.dropLast(phraseWords.size)
+            if (remaining.isEmpty()) continue
+            val last = remaining.last()
+            if (!last.trimEnd().endsWith(",")) continue
+
+            val trimmedLast = last.trimEnd().dropLast(1).trim()
+            words = (remaining.dropLast(1) + listOf(trimmedLast)).filter { it.isNotBlank() }
+            changed = true
+            break
+        }
+    }
+    return words.joinToString(" ")
+}
+
+/** PHASE P1.2 — courtesy words, longest first so "thank you" precedes "you". */
+internal val TRAILING_COURTESY: List<String> = listOf("thank you", "thanks", "please")
+    .sortedByDescending { it.length }
 
 /**
  * The three views of one utterance.

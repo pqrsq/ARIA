@@ -84,7 +84,10 @@ class RuleBasedCommandParser : CommandParser {
         // sound-mode stage, which runs *after* the ring-restoring rules. Catching
         // it here turned "turn off silent mode" into SilentMode.
         val silentPatterns = listOf(
-            Regex("\\b(mute|silence)\\s+(the\\s+)?(phone|device|ringer)\\b"),
+            // PHASE P1.3: "(the\s+|my\s+)?" — "mute MY phone" is the same request
+            // as "mute the phone". A pronoun is required, so "mute the media"
+            // still cannot reach this rule.
+            Regex("\\b(mute|silence)\\s+(the\\s+|my\\s+)?(phone|device|ringer)\\b"),
             Regex("\\bput\\s+(the\\s+|my\\s+)?phone\\s+on\\s+(silent|mute)\\b")
         )
         if (silentPatterns.any { it.containsMatchIn(phrase) } && !phrase.contains("volume")) {
@@ -179,6 +182,13 @@ class RuleBasedCommandParser : CommandParser {
             // needs a tail must have one.
             val query = TextNormalizer.entityAfterPrefix(text, anchor) ?: return null
             if (query.lowercase() in NON_ENTITIES) return null
+
+            // PHASE P1.4: "find my phone" / "find my keys" is a request for the
+            // user's OWN property, not a map search. ARIA has no way to locate it,
+            // and a map result for the literal words would be a confident wrong
+            // answer — so it declines instead (honest refusal over recall).
+            if (query.lowercase().startsWithWord("my")) return null
+
             return AssistantCommand.SearchLocation(query)
         }
         return null
@@ -272,6 +282,18 @@ class RuleBasedCommandParser : CommandParser {
      */
     private fun stripAppNoise(name: String): String {
         var result = name.trim()
+
+        // PHASE P1.2(c): "open chrome please". App names are the one entity where
+        // trailing politeness is stripped WITHOUT a comma, because an app is a
+        // short, closed vocabulary — "please" is never part of a real app name in
+        // the launcher list, whereas a song title can genuinely be "Please Please
+        // Please". The strip is positional, so "Chrome" keeps its capital.
+        //
+        // ORDER MATTERS: courtesy goes FIRST, so "open the YouTube app please"
+        // ends up "YouTube app" and then "YouTube". Stripping "app" first would
+        // leave "YouTube app" (nothing ends in "app" once "please" is last).
+        result = stripTrailingAppCourtesy(result) ?: result
+
         if (result.lowercase().startsWithWord("the")) {
             result = stripLeadingPhrase(result, "the") ?: result
         }
@@ -279,6 +301,20 @@ class RuleBasedCommandParser : CommandParser {
             result = stripTrailingPhrase(result, "app") ?: result
         }
         return result.trim()
+    }
+
+    /**
+     * PHASE P1.2(c) — drops one trailing courtesy word from an app name.
+     *
+     * Returns null when nothing would remain ("open please" is not an app), so the
+     * caller keeps the un-stripped value rather than producing an empty name.
+     */
+    private fun stripTrailingAppCourtesy(name: String): String? {
+        for (courtesy in APP_TRAILING_COURTESY) {
+            if (!name.lowercase().endsWithWord(courtesy)) continue
+            return stripTrailingPhrase(name, courtesy)
+        }
+        return name
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -325,6 +361,11 @@ class RuleBasedCommandParser : CommandParser {
             // sentence, so the whole-phrase form demands the entire utterance.
             phrase == "silent mode" || phrase == "go silent" ->
                 AssistantCommand.SilentMode
+
+            // PHASE P1.3: the bare imperative. "vibrate" alone is a request, while
+            // "why does my phone vibrate" is a question — hence whole-utterance,
+            // not a substring. It is a MODE word, so it maps to VibrateMode.
+            phrase == "vibrate" -> AssistantCommand.VibrateMode
 
             else -> null
         }
@@ -644,7 +685,14 @@ class RuleBasedCommandParser : CommandParser {
         val ELABORATE_SILENT_PATTERNS = listOf(
             Regex("\\b(turn|switch)\\s+(the\\s+|my\\s+)?phone\\s+(to\\s+)?silent\\b"),
             Regex("\\b(turn|switch)\\s+(the\\s+|my\\s+)?phone\\s+(on\\s+)?silent\\b"),
-            Regex("\\bput\\s+(the\\s+|my\\s+)?phone\\s+on\\s+silent\\b")
+            Regex("\\bput\\s+(the\\s+|my\\s+)?phone\\s+on\\s+silent\\b"),
+            // PHASE P1.3: "turn on silent mode". Safe here because this stage is
+            // only reached AFTER NORMAL_RING_PATTERNS, so the negation
+            // "turn OFF silent mode" is already claimed and cannot be inverted.
+            Regex("\\b(turn|switch)\\s+on\\s+silent\\s+mode\\b"),
+            // PHASE P1.3: "turn my phone silent" — the "my" form the existing
+            // patterns above did not cover.
+            Regex("\\bturn\\s+my\\s+phone\\s+silent\\b")
         )
 
         /**
@@ -676,6 +724,16 @@ class RuleBasedCommandParser : CommandParser {
             "voice", "system", "speaker"
         )
 
+        /**
+         * PHASE P1.2(c): trailing politeness removed from app names.
+         *
+         * WHY WITHOUT A COMMA HERE: app names are a closed vocabulary (the launcher
+         * list), so a courtesy word is never part of a real name — unlike a song
+         * title, which can be "Please Please Please". The WORD LIST is shared with
+         * the normaliser so the two cannot drift.
+         */
+        val APP_TRAILING_COURTESY = TRAILING_COURTESY
+
         /** PHASE 6.5 (D10): app names that are really the settings screen. */
         val SETTINGS_APP_NAMES = setOf(
             "settings", "system settings", "the settings"
@@ -703,6 +761,12 @@ class RuleBasedCommandParser : CommandParser {
 
         val VOLUME_DOWN_PATTERNS = listOf(
             Regex("\\b(turn|bring|take)\\s+(the\\s+)?volume\\s+down\\b"),
+            // PHASE P1.1 — the other word order. "turn DOWN the volume" puts the
+            // direction before the noun, which the Phase 5 patterns only allowed
+            // after it. ANCHORED (containsMatchIn), because the verb carries the
+            // intent — this is not a bare direction word (see D4).
+            Regex("\\b(turn|bring|take)\\s+down\\s+(the\\s+)?volume\\b"),
+            Regex("\\bdown\\s+the\\s+volume\\b"),
             Regex("\\b(lower|decrease|reduce|drop)\\s+(the\\s+)?volume\\b"),
             Regex("\\bmake\\s+(it|the\\s+(phone|volume|music))\\s+(quieter|softer|lower)\\b"),
             Regex("\\bturn\\s+(it|the\\s+volume)\\s+down\\b"),
@@ -729,6 +793,9 @@ class RuleBasedCommandParser : CommandParser {
 
         val VOLUME_UP_PATTERNS = listOf(
             Regex("\\b(turn|bring|take)\\s+(the\\s+)?volume\\s+up\\b"),
+            // PHASE P1.1 — mirror of the line above; see VOLUME_DOWN_PATTERNS.
+            Regex("\\b(turn|bring|take)\\s+up\\s+(the\\s+)?volume\\b"),
+            Regex("\\bup\\s+the\\s+volume\\b"),
             Regex("\\b(raise|increase|boost)\\s+(the\\s+)?volume\\b"),
             Regex("\\bmake\\s+(it|the\\s+(phone|volume|music))\\s+(louder|higher)\\b"),
             Regex("\\bturn\\s+(it|the\\s+volume)\\s+up\\b"),
@@ -759,7 +826,12 @@ class RuleBasedCommandParser : CommandParser {
             Regex("play\\s+(the\\s+)?next\\s+(song|track)"),
             Regex("next\\s+(song|track)"),
             Regex("(skip|play)\\s+(this\\s+|the\\s+)?(song|track)"),
-            Regex("skip\\s+(this|the|to\\s+the)\\s+(song|track|next)")
+            Regex("skip\\s+(this|the|to\\s+the)\\s+(song|track|next)"),
+            // PHASE P1.5: the bare imperative. "skip track"/"skip song" already
+            // matched the pattern above; only the one-word form was missing.
+            // Transport is matched with [Regex.matches] (the whole utterance), so
+            // "I want to skip" still does not match — precision is unchanged.
+            Regex("skip")
         )
 
         val PREVIOUS_PATTERNS = listOf(
@@ -768,6 +840,9 @@ class RuleBasedCommandParser : CommandParser {
             Regex("play\\s+(the\\s+)?last\\s+(song|track)"),
             Regex("previous\\s+(song|track)"),
             Regex("(go\\s+)?back\\s+(one\\s+)?(song|track)"),
+            // PHASE P1.5: bare "go back" (already present as a live entry since
+            // Phase 5 — kept here, deliberately, because the transport list is
+            // matched with [Regex.matches], so "I want to go back" stays Unknown.
             Regex("go\\s+back"),
             Regex("last\\s+(song|track)"),
             Regex("replay\\s+(the\\s+)?(previous|last)\\s+(song|track)")
