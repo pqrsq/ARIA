@@ -96,9 +96,9 @@ e7d408c6e4def277  app/src/test/java/com/example/aria/command/ParserCoverageTest.
 494a9ab7a18ac052  app/src/test/java/com/example/aria/command/ParserHardeningTest.kt
 e270b335d5615535  app/src/test/java/com/example/aria/command/RuleBasedCommandParserTest.kt
 155f67269f571954  app/src/test/java/com/example/aria/history/FakeHistoryStore.kt
-7380e325bc163c8c  app/src/test/java/com/example/aria/history/HistoryCapTest.kt
+7b0ebd74254ca9b8  app/src/test/java/com/example/aria/history/HistoryCapTest.kt
 b218d786bb776425  app/src/test/java/com/example/aria/ui/AssistantUiStateTest.kt
-c5083f4ec8fcad8b  app/src/test/java/com/example/aria/ui/AssistantViewModelHistoryTest.kt
+42cf8a994fbaa717  app/src/test/java/com/example/aria/ui/AssistantViewModelHistoryTest.kt
 b52af1833bfa5d02  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
 3ae47834491ed2f8  app/src/test/java/com/example/aria/ui/AssistantViewModelTest.kt
 578c5dfc2b53bed7  app/src/test/java/com/example/aria/ui/AssistantViewModelTextInputTest.kt
@@ -112,7 +112,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 fe1cbca9b2eb3b5d  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
-c57691fa2e76cbe5  docs/PHASE12.md
+f1fa664d54ee8298  docs/PHASE12.md
 089f40b35ccb1460  docs/PHASE2.md
 086f367110e3da9f  docs/PHASE3.md
 d3ed851b91ecd99e  docs/PHASE4.md

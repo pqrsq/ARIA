@@ -226,24 +226,30 @@ class AssistantViewModelHistoryTest {
 
     @Test
     fun `the cap keeps the newest two hundred and drops the oldest`() {
-        // The rule lives in the pure layer, so it is asserted directly here…
-        val records = (1..(MAX_HISTORY_RECORDS + 1)).map { index ->
+        // NEWEST FIRST, like the app: publish() builds `listOf(new) + old`, and
+        // the store returns newest-first too. The first version of this test used
+        // ascending ids and then read "first"/"last" as newest/oldest, which is
+        // backwards — it asserted a convention the app never uses.
+        val records = (MAX_HISTORY_RECORDS + 1 downTo 1).map { index ->
             record(id = index.toLong(), transcript = "row $index", timestamp = index.toLong())
         }
 
         val capped = capHistory(records)
 
         assertEquals(MAX_HISTORY_RECORDS, capped.size)
-        assertEquals("row 1", records.first().rawSpeech)
-        // …the OLDEST is the one that goes.
-        assertEquals("row 2", capped.first().rawSpeech)
-        assertEquals("row ${MAX_HISTORY_RECORDS + 1}", capped.last().rawSpeech)
+        // The newest survives at the top…
+        assertEquals("row ${MAX_HISTORY_RECORDS + 1}", capped.first().rawSpeech)
+        // …the OLDEST (the last element) is the one that goes.
+        assertEquals("row 2", capped.last().rawSpeech)
+        assertTrue("row 1 is the oldest and must be evicted", capped.none { it.rawSpeech == "row 1" })
     }
 
     @Test
     fun `the ViewModel never puts more than the cap into the state or the store`() = runTest(dispatcher) {
         // Seeded at the cap, so one more command must evict exactly one row.
-        val seeded = (1..MAX_HISTORY_RECORDS).map { index ->
+        // Newest first, ids MAX down to 1 — so "row 1" is the oldest seeded row
+        // and is the one the new command must evict.
+        val seeded = (MAX_HISTORY_RECORDS downTo 1).map { index ->
             record(id = index.toLong(), transcript = "row $index", timestamp = index.toLong())
         }
         val store = FakeHistoryStore(stored = seeded)
