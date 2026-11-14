@@ -1,7 +1,6 @@
 package com.example.aria
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
