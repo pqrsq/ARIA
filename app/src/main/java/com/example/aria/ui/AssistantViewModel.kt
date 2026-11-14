@@ -305,17 +305,15 @@ class AssistantViewModel(
         // must never be presented as the answer to this one.
         executionJob?.cancel()
 
-        // PHASE 6.5 (D1): the card is NOT reset here. Parsing and the duplicate
-        // check must happen first, because a suppressed repeat has to leave the
-        // previous settled card exactly as it was — resetting to PROCESSING and
-        // then returning left the UI stuck on "Processing…" forever.
+        // PHASE 6.5 (D1): the card is NOT reset to PROCESSING here. Parsing and
+        // the duplicate check run first, so a suppressed repeat can never be left
+        // showing "Processing…" — the defect that made D1 necessary.
         executionJob = viewModelScope.launch {
             val command = withContext(computeDispatcher) { commandParser.parse(text) }
 
             if (isDuplicate(command)) {
                 // PHASE 6.5 (D1): nothing is executed twice, and the card must go
-                // back to describing the FIRST attempt — which is still what it
-                // holds, since publish() has not run again.
+                // back to describing the FIRST attempt.
                 //
                 // WHY THE CARD IS REBUILT RATHER THAN LEFT ALONE: by the time this
                 // runs, the recogniser has already driven the card through
@@ -323,7 +321,10 @@ class AssistantViewModel(
                 // cleared the visible fields. "Leave the previous card untouched"
                 // therefore has to mean *restore* it, or the user is left looking
                 // at "Processing…" — the exact defect D1 was meant to remove.
-                _uiState.update { it.copy(suppressedDuplicateState()) }
+                // NOTE: called ON the state, not through copy() — copy()'s first
+                // positional parameter is `status`, so `it.copy(x)` would read as
+                // a status and does not compile.
+                _uiState.update { state -> state.suppressedDuplicateState() }
                 return@launch
             }
             remember(command)
