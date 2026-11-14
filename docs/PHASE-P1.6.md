@@ -316,3 +316,49 @@ one class:
 ```powershell
 .\gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=com.example.aria.DebugTextInputTest"
 ```
+
+---
+
+## 12. Second hotfix: two separate test defects behind the remaining 2 failures
+
+The `createAndroidComposeRule<ComponentActivity>()` change fixed 3 of the 5 (the
+"no compose hierarchies" group). The two that remained had **different, unrelated**
+causes — both in tests, neither in app code.
+
+### (a) `theFieldIsDisabledWhileAnExecutionIsInFlight` — asserted by interacting
+
+```
+Failed to perform text input.
+Failed to assert the following: (is enabled)
+```
+
+The test passed `enabled = false`, then called `performTextInput` on the field. A
+disabled `TextField` rejects typed input **by design**, so the action failed while
+asserting the very state the test had asked for. The contract is "this field cannot
+be used", which is `assertIsNotEnabled()` — an assertion, not an interaction. The
+test now asserts both controls are disabled, then clicks Send to prove that nothing
+is submitted even if the click lands.
+
+This was a wrong *technique*: it could never pass, in any environment.
+
+### (b) `historyRow_showsSpeechAndCommandType` — stale exact-text match
+
+```
+Assert failed: The component is not displayed!
+```
+
+P1.6 appended the input-source marker, so the history row renders
+`VOLUME_DOWN · VOICE`. The test still looked for the exact text `VOLUME_DOWN` and
+found nothing. It now asserts `VOLUME_DOWN · VOICE`; the middle dot was compared by
+codepoint (`U+0020 U+00B7 U+0020`) against `HistoryList.kt` so the literal matches
+byte for byte.
+
+**WHY THIS WASN'T CAUGHT EARLIER:** it passed in the *previous* run. The difference is
+the run before it was filtered out — this assertion is order-dependent, because
+`onNodeWithText` failed only when the class ran in the full 28-test sequence. Either
+way the assertion was stale from P1.6 onwards, and the P1.6 report did not update it.
+
+### Status
+
+Test-only changes. Not executed here (no JDK/SDK/device). Run
+`.\gradlew :app:connectedDebugAndroidTest` — expected **28/28**.

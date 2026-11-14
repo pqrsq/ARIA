@@ -44,7 +44,10 @@ class AssistantScreenTest {
         }
 
         composeRule.onNodeWithText("Turn the volume down").assertIsDisplayed()
-        composeRule.onNodeWithText("VOLUME_DOWN").assertIsDisplayed()
+        // P1.6 appended the input-source marker to the command-type line, so the
+        // row reads "VOLUME_DOWN · VOICE". The old exact match could no longer
+        // find the node.
+        composeRule.onNodeWithText("VOLUME_DOWN · VOICE").assertIsDisplayed()
         composeRule.onNodeWithText("OK").assertIsDisplayed()
     }
 

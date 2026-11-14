@@ -5,8 +5,8 @@ This file does not list itself (its own hash would change once written).
 04e094d6ece30836  .gitignore
 a977bb0b2217ecb6  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
-0fc2ec43f71392c4  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
-af9a874727e5c4c3  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
+44e9a3e243fdf6eb  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
+4acc6d657e719822  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
 5251119eaccaa9ff  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
 fa3075f894dc89b7  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
 88f617f9739d4364  app/src/main/AndroidManifest.xml
@@ -109,7 +109,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 8cde6876af2ed692  artifacts/aria-phase1-androidTest.apk
 0981db0bdc16ae74  artifacts/aria-phase1-debug.apk
 16e0e9395413c907  build.gradle.kts
-ff467555df723f02  docs/PHASE-P1.6.md
+035ddfb1a33a1a33  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
 9470eb5268ac5f3a  docs/PHASE12.md

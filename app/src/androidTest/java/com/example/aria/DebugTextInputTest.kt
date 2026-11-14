@@ -1,10 +1,10 @@
 package com.example.aria
 
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -127,9 +127,16 @@ class DebugTextInputTest {
             }
         }
 
-        composeRule.onNodeWithTag(DEBUG_TEXT_FIELD_TAG).performTextInput("turn the volume up")
+        // A DISABLED TextField rejects typed input by design, so `performTextInput`
+        // fails with "Failed to assert the following: (is enabled)" — the test was
+        // asserting through an action that the state under test forbids. What the
+        // contract actually says is "this field cannot be used": that is an
+        // `assertIsNotEnabled`, not an interaction.
+        composeRule.onNodeWithTag(DEBUG_TEXT_FIELD_TAG).assertIsNotEnabled()
+        composeRule.onNodeWithTag(DEBUG_TEXT_SUBMIT_TAG).assertIsNotEnabled()
+        // …and nothing is submitted even if a click is delivered.
         composeRule.onNodeWithTag(DEBUG_TEXT_SUBMIT_TAG).performClick()
 
-        assertEquals(0, calls)
+        assertEquals("a disabled field must never submit", 0, calls)
     }
 }
