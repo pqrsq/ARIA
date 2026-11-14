@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -48,6 +49,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.aria.R
 import com.example.aria.ui.components.DebugSettingsSheet
+import com.example.aria.ui.components.DebugTextInputIfDebug
 import com.example.aria.ui.components.HistoryList
 import com.example.aria.ui.components.MicrophoneButton
 import com.example.aria.ui.components.SectionHeader
@@ -127,6 +129,9 @@ fun AssistantScreen(
             }
         },
         onDebugModeChanged = viewModel::onDebugModeChanged,
+        // PHASE P1.6: typed input enters the pipeline through the same ViewModel
+        // entry point the parser is driven by for speech — see onSubmitTextInput.
+        onSubmitText = viewModel::onSubmitTextInput,
         onClearHistory = viewModel::clearHistory,
         onTtsEnabledChanged = viewModel::onTtsEnabledChanged,
         modifier = modifier
@@ -142,6 +147,7 @@ private fun AssistantContent(
     onDebugModeChanged: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
     onTtsEnabledChanged: (Boolean) -> Unit,
+    onSubmitText: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showSettings by remember { mutableStateOf(false) }
@@ -153,6 +159,13 @@ private fun AssistantContent(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                // PHASE P1.6: imePadding BEFORE navigationBarsPadding — the
+                // keyboard sits below the nav bar, so insetting for the keyboard
+                // first stops the two insets being added together and leaving a
+                // dead strip under the field. With adjustResize + edge-to-edge,
+                // this is what keeps the text field and the result card visible
+                // while typing.
+                .imePadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp),
@@ -213,6 +226,20 @@ private fun AssistantContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = AriaColors.TextTertiary,
                 textAlign = TextAlign.Center
+            )
+
+            // PHASE P1.6 — debug-only text input. Placed directly beneath the
+            // microphone so that typing and speaking are the same gesture in the
+            // same place; hidden entirely in normal use (V1 is voice-first), by
+            // the rule inside DebugTextInputIfDebug.
+            DebugTextInputIfDebug(
+                debugMode = state.debugMode,
+                onSubmit = onSubmitText,
+                // Disabled while an execution is in flight, exactly like the
+                // microphone: the pipeline is single-flight and a second submit
+                // would cancel the first one's result.
+                enabled = !isProcessing,
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(Modifier.height(22.dp))
@@ -347,7 +374,8 @@ private fun AssistantContentPreview() {
                 onOpenPermissionSettings = {},
                 onDebugModeChanged = {},
                 onClearHistory = {},
-                onTtsEnabledChanged = {}
+                onTtsEnabledChanged = {},
+                onSubmitText = {}
             )
         }
     }

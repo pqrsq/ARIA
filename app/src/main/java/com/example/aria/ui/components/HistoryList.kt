@@ -76,7 +76,9 @@ private fun HistoryRow(record: CommandRecord) {
                 color = AriaColors.TextPrimary
             )
             Text(
-                text = record.commandType,
+                // PHASE P1.6: the origin travels with the row, so a typed test
+                // command can never be mistaken for a misrecognised one later.
+                text = "${record.commandType} · ${record.source.name}",
                 style = MaterialTheme.typography.labelSmall,
                 color = AriaColors.TextSecondary
             )

@@ -17,7 +17,8 @@ coding agent. Keep it updated at the end of every phase.
 | **5** | Rule-based parser + unit tests | ✅ **done** |
 | **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** |
 | **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** |
-| **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ **done** (this phase) |
+| **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ **done** |
+| **P1.6** | Debug text input — a second input into the existing pipeline | ✅ **done** (this phase) |
 | 7 | Volume actions | 🔀 folded into 6 |
 | 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
 | 9 | Maps actions | 🔀 folded into 6 |
@@ -92,6 +93,16 @@ device.
   Android SDK in the sandbox.
 - Three sub-items in the brief were already correct (`volume up`, `turn my phone
   silent`, `go back`) and were left alone; they now have guard tests instead.
+- P1 was completed and then fixed twice after real builds (an unresolved helper,
+  then a deleted guard). Both are recorded in `docs/PHASE-P1.md` §8–9.
+
+**Phase P1.6 status:**
+- Debug-only text field. Submit calls `onSubmitTextInput` → `runCommand(text, source)`,
+  the same private function a final speech result calls. No second command path.
+- No microphone: typed input works with RECORD_AUDIO denied or no speech service.
+- `InputSource { VOICE, TEXT }` on the UI state and on every history row.
+- 362 unit tests (347 before) and 14 instrumented (9 before). ⚠️ **Not compiled** —
+  no JDK/SDK in the sandbox; see `docs/PHASE-P1.6.md` §7 for the typed device script.
 - `docs/PHASE-P1.md` records the before/after, the entity-vs-matching-view decision
   that keeps `"play Please Please Please"` intact, and the phone script.
 
