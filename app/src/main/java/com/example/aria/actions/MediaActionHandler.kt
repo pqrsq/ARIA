@@ -58,7 +58,7 @@ class MediaActionHandler(
         return if (dispatched) {
             ExecutionResult.Success("Sent a $spokenName request to the media app.")
         } else {
-            ExecutionResult.Failure(ActionMessages.MEDIA_UNAVAILABLE)
+            ExecutionResult.Failure(ActionMessages.MEDIA_UNAVAILABLE, FailureReason.LAUNCH_FAILED)
         }
     }
 }

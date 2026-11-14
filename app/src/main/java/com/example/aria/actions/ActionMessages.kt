@@ -57,4 +57,27 @@ object ActionMessages {
 
     /** A handler threw unexpectedly; the ViewModel's safety net uses this. */
     const val UNEXPECTED = "Something went wrong while carrying out that command."
+
+    // ── PHASE 6.5 ────────────────────────────────────────────────────────────
+
+    /**
+     * D10 — two commands in one breath.
+     *
+     * Says "one at a time" rather than "I didn't understand": the words *were*
+     * understood, and pretending otherwise would teach the user to repeat the
+     * same sentence louder.
+     */
+    const val ONE_COMMAND_AT_A_TIME = "I can only handle one command at a time."
+
+    /** D11 — a volume outside the range the model allows. */
+    const val VOLUME_OUT_OF_RANGE = "Volume must be between 0 and 100 percent."
+
+    /**
+     * D8 — ring volume refused because Do Not Disturb access is missing.
+     *
+     * Names *why* rather than saying "failed": the user can act on a permission,
+     * but not on a mystery.
+     */
+    const val RING_VOLUME_BLOCKED =
+        "ARIA needs Do Not Disturb access to change the ring volume."
 }

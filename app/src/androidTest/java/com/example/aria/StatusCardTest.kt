@@ -2,10 +2,12 @@ package com.example.aria
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.aria.ui.AssistantStatus
 import com.example.aria.ui.AssistantUiState
+import com.example.aria.ui.components.SETTINGS_BUTTON_TAG
 import com.example.aria.ui.components.StatusCard
 import com.example.aria.ui.theme.AriaTheme
 import org.junit.Rule
@@ -85,6 +87,62 @@ class StatusCardTest {
         composeRule.onNodeWithText("\u201CI heard you.\u201D").assertIsDisplayed()
         // The transcript stays visible while ARIA talks.
         composeRule.onNodeWithText("\u201CTurn the volume down\u201D").assertIsDisplayed()
+    }
+
+    @Test
+    fun rejectedState_isNeutralAndExplainsTheRefusal() {
+        // PHASE 6.5 (D10/D11): a deliberate refusal is neither COMPLETED nor
+        // FAILED, so the label must be its own neutral wording.
+        composeRule.setContent {
+            AriaTheme {
+                StatusCard(
+                    state = AssistantUiState(
+                        status = AssistantStatus.REJECTED,
+                        rawSpeech = "set the volume to 120 percent",
+                        message = "Volume must be between 0 and 100 percent."
+                    )
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("NOT DONE").assertIsDisplayed()
+        composeRule.onNodeWithText("Volume must be between 0 and 100 percent.")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun pendingPermission_showsOpenSettingsButton() {
+        // PHASE 6.5 (D2): the only actionable thing about a missing permission is
+        // the button, so its presence is the contract worth pinning.
+        composeRule.setContent {
+            AriaTheme {
+                StatusCard(
+                    state = AssistantUiState(
+                        status = AssistantStatus.ERROR,
+                        message = "ARIA needs Do Not Disturb access to change the ring volume.",
+                        pendingSettingsAction =
+                            com.example.aria.actions.SettingsActions.NOTIFICATION_POLICY_ACCESS
+                    ),
+                    onOpenSettings = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(SETTINGS_BUTTON_TAG).assertIsDisplayed()
+        composeRule.onNodeWithText("Open settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun noPendingPermission_hidesTheSettingsButton() {
+        // The negative case matters too: a permanently visible button would be a
+        // dead control on every successful command.
+        composeRule.setContent {
+            AriaTheme {
+                StatusCard(state = AssistantUiState(status = AssistantStatus.SUCCESS))
+            }
+        }
+
+        composeRule.onNodeWithTag(SETTINGS_BUTTON_TAG).assertDoesNotExist()
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.example.aria.actions
 
 import com.example.aria.command.AssistantCommand
+import com.example.aria.command.RejectionReason
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -43,6 +44,44 @@ class ExecutionResultTest {
 
         assertFalse(result.isSuccess)
         assertEquals(SettingsActions.NOTIFICATION_POLICY_ACCESS, result.settingsIntentAction)
+    }
+
+    // --- A1 — typed failure reasons -----------------------------------------
+
+    @Test
+    fun `a failure without a reason is UNKNOWN, so old call sites keep working`() {
+        // A1 is deliberately non-breaking: the default is the whole point.
+        assertEquals(FailureReason.UNKNOWN, ExecutionResult.Failure("nope").reason)
+    }
+
+    @Test
+    fun `a typed reason is carried verbatim`() {
+        val result = ExecutionResult.Failure("no app", FailureReason.APP_NOT_FOUND)
+        assertEquals(FailureReason.APP_NOT_FOUND, result.reason)
+    }
+
+    @Test
+    fun `the reason does not change the message or isSuccess`() {
+        // Metadata only: annotation must never be able to alter what is said.
+        val plain = ExecutionResult.Failure("same words")
+        val typed = ExecutionResult.Failure("same words", FailureReason.TIMEOUT)
+
+        assertEquals(plain.message, typed.message)
+        assertFalse(typed.isSuccess)
+    }
+
+    @Test
+    fun `the reason enum covers the annotated causes`() {
+        val causes = FailureReason.entries.toSet()
+        listOf(
+            FailureReason.APP_NOT_FOUND,
+            FailureReason.LAUNCH_FAILED,
+            FailureReason.PERMISSION_DENIED,
+            FailureReason.NOT_SUPPORTED,
+            FailureReason.INVALID_PARAMETER,
+            FailureReason.TIMEOUT,
+            FailureReason.UNKNOWN
+        ).forEach { assertTrue("$it missing", it in causes) }
     }
 
     @Test
@@ -196,6 +235,7 @@ class ExecutionResultTest {
         AssistantCommand.VolumeDown,
         AssistantCommand.SetVolume(50),
         AssistantCommand.MuteMedia,
+        AssistantCommand.UnmuteMedia,
         AssistantCommand.SilentMode,
         AssistantCommand.VibrateMode,
         AssistantCommand.NormalRingMode,
@@ -212,6 +252,8 @@ class ExecutionResultTest {
         AssistantCommand.OpenWifiSettings,
         AssistantCommand.OpenBluetoothSettings,
         AssistantCommand.OpenBatterySettings,
-        AssistantCommand.Unknown("blah")
+        AssistantCommand.Unknown("blah"),
+        AssistantCommand.Rejected(RejectionReason.COMPOUND_SENTENCE),
+        AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
     )
 }

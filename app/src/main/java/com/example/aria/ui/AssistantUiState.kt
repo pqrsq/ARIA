@@ -1,5 +1,7 @@
 package com.example.aria.ui
 
+import com.example.aria.command.AssistantCommand
+
 /**
  * The lifecycle of one assistant interaction, as shown to the user.
  *
@@ -23,6 +25,16 @@ enum class AssistantStatus {
 
     /** Something failed: no speech, unknown command, missing app, no permission… */
     ERROR,
+
+    /**
+     * PHASE 6.5: the words were understood, and ARIA declined on purpose.
+     *
+     * WHY A FOURTH OUTCOME: "I didn't understand that" (SUCCESS, green) and "that
+     * failed" (ERROR, red) are both wrong for a deliberate refusal like "I can
+     * only handle one command at a time". A neutral colour is the honest one:
+     * nothing malfunctioned and nothing succeeded.
+     */
+    REJECTED,
 
     /**
      * PHASE 3: ARIA is talking back. A distinct state (not a flag on SUCCESS)
@@ -116,7 +128,19 @@ data class AssistantUiState(
      * CARRIED, NOT LAUNCHED: ARIA reports which screen would help; opening it
      * stays an explicit user decision (see docs/PHASE6.md, security rules).
      */
-    val pendingSettingsAction: String? = null
+    val pendingSettingsAction: String? = null,
+    /**
+     * PHASE 6.5 (D2): the command that was refused for lack of a permission.
+     *
+     * Kept so that returning from Settings with the grant can RETRY the original
+     * request instead of asking the user to repeat themselves. Null when nothing
+     * is pending. It is deliberately a typed command, not a re-parsed String: the
+     * parser is not guaranteed to produce the same command for the same text
+     * forever, and retrying must reproduce exactly what was understood.
+     */
+    val pendingCommand: AssistantCommand? = null,
+    /** PHASE 6.5 (D2): the transcript that produced [pendingCommand]. */
+    val pendingRawSpeech: String? = null
 ) {
     /** True when there is at least one recognisable field worth showing. */
     val hasResult: Boolean

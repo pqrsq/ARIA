@@ -460,7 +460,7 @@ class AssistantViewModelTest {
         val vm = viewModel()
         vm.speakOnce("keep me")
 
-        tts.emit(TtsEvent.SpeakFailed)
+        tts.emit(TtsEvent.SpeakFailed())
 
         assertEquals("keep me", vm.uiState.value.rawSpeech)
         assertEquals(

@@ -10,6 +10,7 @@ import com.example.aria.actions.ActionExecutor
 import com.example.aria.command.CommandParser
 import com.example.aria.permissions.AndroidPermissionChecker
 import com.example.aria.permissions.MicrophonePermissionChecker
+import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.SpeechRecognizerManager
 import com.example.aria.voice.TextToSpeechManager
 
@@ -33,7 +34,8 @@ fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
             permissionChecker = AndroidPermissionChecker(application),
             textToSpeechManager = application.textToSpeechManager,
             commandParser = application.commandParser,
-            actionExecutor = application.actionExecutor
+            actionExecutor = application.actionExecutor,
+            policyAccessChecker = application.policyAccessChecker
         )
     }
 }
@@ -47,7 +49,8 @@ class AssistantViewModelFactory(
     private val permissionChecker: MicrophonePermissionChecker,
     private val textToSpeechManager: TextToSpeechManager,
     private val commandParser: CommandParser,
-    private val actionExecutor: ActionExecutor
+    private val actionExecutor: ActionExecutor,
+    private val policyAccessChecker: PolicyAccessChecker = PolicyAccessChecker { false }
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -59,7 +62,8 @@ class AssistantViewModelFactory(
             permissionChecker = permissionChecker,
             textToSpeechManager = textToSpeechManager,
             commandParser = commandParser,
-            actionExecutor = actionExecutor
+            actionExecutor = actionExecutor,
+            policyAccessChecker = policyAccessChecker
         ) as T
     }
 }

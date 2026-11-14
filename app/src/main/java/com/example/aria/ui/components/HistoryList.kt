@@ -96,6 +96,8 @@ private fun ResultPill(status: AssistantStatus) {
         AssistantStatus.IDLE -> "—" to AriaColors.TextTertiary
         // A captured transcript that is being read back is still a success.
         AssistantStatus.SPEAKING -> "OK" to AriaColors.Success
+        // PHASE 6.5: refused on purpose — not a failure, so not FAIL.
+        AssistantStatus.REJECTED -> "N/A" to AriaColors.TextSecondary
     }
     Text(
         text = label,

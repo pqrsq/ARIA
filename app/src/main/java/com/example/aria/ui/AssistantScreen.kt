@@ -1,6 +1,7 @@
 package com.example.aria.ui
 
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -97,10 +98,34 @@ fun AssistantScreen(
         viewModel.onAppBackgrounded()
     }
 
+    // PHASE 6.5 (D2): coming back from Settings is the only moment the user can
+    // have granted the permission, so that is when the ViewModel re-checks it (via
+    // its PolicyAccessChecker port) and retries the refused command. The lifecycle
+    // observation lives HERE because a ViewModel has no lifecycle; it stays
+    // Android-free because it is only told "we are back".
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onReturnedFromSettings()
+    }
+
     AssistantContent(
         state = state,
         onMicrophoneTapped = viewModel::onMicrophoneTapped,
         onOpenAppSettings = { context.startActivity(appDetailsIntent(context)) },
+        onOpenPermissionSettings = {
+            // Explicit user tap, never automatic (Phase 6.5, D2). Some devices
+            // have no matching settings screen; that must be a no-op rather than
+            // a crash, and the hint stays so the user is not stranded.
+            val action = state.pendingSettingsAction
+            if (action != null) {
+                try {
+                    context.startActivity(
+                        Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (ignored: ActivityNotFoundException) {
+                    // Nothing to open on this device. Keep the card as it is.
+                }
+            }
+        },
         onDebugModeChanged = viewModel::onDebugModeChanged,
         onClearHistory = viewModel::clearHistory,
         onTtsEnabledChanged = viewModel::onTtsEnabledChanged,
@@ -113,6 +138,7 @@ private fun AssistantContent(
     state: AssistantUiState,
     onMicrophoneTapped: () -> Unit,
     onOpenAppSettings: () -> Unit,
+    onOpenPermissionSettings: () -> Unit,
     onDebugModeChanged: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
     onTtsEnabledChanged: (Boolean) -> Unit,
@@ -199,7 +225,8 @@ private fun AssistantContent(
                 Column {
                     StatusCard(
                         state = state,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        onOpenSettings = onOpenPermissionSettings
                     )
 
                     // Only a permanently blocked permission needs the detour
@@ -317,6 +344,7 @@ private fun AssistantContentPreview() {
                 state = previewState,
                 onMicrophoneTapped = {},
                 onOpenAppSettings = {},
+                onOpenPermissionSettings = {},
                 onDebugModeChanged = {},
                 onClearHistory = {},
                 onTtsEnabledChanged = {}

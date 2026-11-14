@@ -14,7 +14,8 @@ import com.example.aria.command.AssistantCommand
  *
  * ── THE COST, STATED HONESTLY ────────────────────────────────────────────────
  * This is a second exhaustive `when` over [AssistantCommand], parallel to the
- * routing in [AndroidActionExecutor]. The compiler keeps *this* one complete, but
+ * routing in [AndroidActionExecutor]. (Phase 6.5 added `UnmuteMedia` → volume and
+ * `Rejected` → the fallback handler.) The compiler keeps *this* one complete, but
  * it cannot prove the two agree; [HandlerNamesTest] asserts that every command
  * maps to a name and that every name belongs to a handler that exists. Keep the
  * two files in sync when a command is added.
@@ -34,7 +35,8 @@ object HandlerNames {
         is AssistantCommand.VolumeUp,
         is AssistantCommand.VolumeDown,
         is AssistantCommand.SetVolume,
-        is AssistantCommand.MuteMedia -> VOLUME
+        is AssistantCommand.MuteMedia,
+        is AssistantCommand.UnmuteMedia -> VOLUME
 
         is AssistantCommand.SilentMode,
         is AssistantCommand.VibrateMode,
@@ -57,7 +59,8 @@ object HandlerNames {
         is AssistantCommand.OpenBluetoothSettings,
         is AssistantCommand.OpenBatterySettings -> SETTINGS
 
-        is AssistantCommand.Unknown -> UNKNOWN
+        is AssistantCommand.Unknown,
+        is AssistantCommand.Rejected -> UNKNOWN
     }
 
     /** Every label this object can produce; used by tests and the docs. */

@@ -21,6 +21,12 @@ class UnknownActionHandler {
 
     fun handle(command: AssistantCommand): ExecutionResult = when (command) {
         is AssistantCommand.Unknown -> ExecutionResult.NotUnderstood(ActionMessages.NOT_UNDERSTOOD)
+
+        // PHASE 6.5 (D10/D11): understood, deliberately refused. The reason
+        // selects the sentence, so the parser and the user hear the same story.
+        is AssistantCommand.Rejected ->
+            ExecutionResult.Rejected(RejectionMessages.forReason(command.reason))
+
         else -> ExecutionResult.NotSupported(ActionMessages.UNEXPECTED)
     }
 }

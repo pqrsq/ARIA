@@ -91,6 +91,7 @@ class AssistantCommandTest {
             AssistantCommand.VolumeDown,
             AssistantCommand.SetVolume(10),
             AssistantCommand.MuteMedia,
+            AssistantCommand.UnmuteMedia,
             AssistantCommand.SilentMode,
             AssistantCommand.VibrateMode,
             AssistantCommand.NormalRingMode,
@@ -102,10 +103,12 @@ class AssistantCommandTest {
             AssistantCommand.OpenWifiSettings,
             AssistantCommand.OpenBluetoothSettings,
             AssistantCommand.OpenBatterySettings,
-            AssistantCommand.Unknown("x")
+            AssistantCommand.Unknown("x"),
+            AssistantCommand.Rejected(RejectionReason.COMPOUND_SENTENCE)
         )
 
-        assertEquals("The spec requires exactly these 21 commands", 21, all.size)
+        // PHASE 6.5: UnmuteMedia (A3) and Rejected (D10/D11) join the vocabulary.
+        assertEquals("The spec requires exactly these 23 commands", 23, all.size)
         all.forEach { command ->
             assertTrue(
                 "Blank display name for ${command::class.simpleName}",
@@ -243,13 +246,15 @@ class AssistantCommandTest {
             AssistantCommand.ResumeMusic, AssistantCommand.NextTrack,
             AssistantCommand.PreviousTrack, AssistantCommand.VolumeUp,
             AssistantCommand.VolumeDown, AssistantCommand.SetVolume(1),
-            AssistantCommand.MuteMedia, AssistantCommand.SilentMode,
+            AssistantCommand.MuteMedia, AssistantCommand.UnmuteMedia,
+            AssistantCommand.SilentMode,
             AssistantCommand.VibrateMode, AssistantCommand.NormalRingMode,
             AssistantCommand.OpenMaps, AssistantCommand.SearchLocation("x"),
             AssistantCommand.NavigateTo("x"), AssistantCommand.OpenApp("x"),
             AssistantCommand.OpenSettings, AssistantCommand.OpenWifiSettings,
             AssistantCommand.OpenBluetoothSettings, AssistantCommand.OpenBatterySettings,
-            AssistantCommand.Unknown("x")
+            AssistantCommand.Unknown("x"),
+            AssistantCommand.Rejected(RejectionReason.COMPOUND_SENTENCE)
         )
 
         val categories = all.map { it.category() }.toSet()
@@ -279,7 +284,8 @@ class AssistantCommandTest {
         AssistantCommand.VolumeUp,
         AssistantCommand.VolumeDown,
         is AssistantCommand.SetVolume,
-        AssistantCommand.MuteMedia -> "Volume"
+        AssistantCommand.MuteMedia,
+        AssistantCommand.UnmuteMedia -> "Volume"
 
         AssistantCommand.SilentMode,
         AssistantCommand.VibrateMode,
@@ -296,6 +302,7 @@ class AssistantCommandTest {
         AssistantCommand.OpenBluetoothSettings,
         AssistantCommand.OpenBatterySettings -> "Settings"
 
-        is AssistantCommand.Unknown -> "Fallback"
+        is AssistantCommand.Unknown,
+        is AssistantCommand.Rejected -> "Fallback"
     }
 }

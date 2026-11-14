@@ -45,7 +45,7 @@ class AndroidActionExecutor(
             // layer, and no failure here may reach the user as a crash. The
             // exception is not swallowed silently — the result says something
             // went wrong, and the message is specific enough to act on.
-            ExecutionResult.Failure(ActionMessages.UNEXPECTED)
+            ExecutionResult.Failure(ActionMessages.UNEXPECTED, FailureReason.UNKNOWN)
         }
 
     /** The exhaustive routing table. Kept separate so [execute] stays readable. */
@@ -53,7 +53,8 @@ class AndroidActionExecutor(
         is AssistantCommand.VolumeUp,
         is AssistantCommand.VolumeDown,
         is AssistantCommand.SetVolume,
-        is AssistantCommand.MuteMedia -> volumeHandler.handle(command)
+        is AssistantCommand.MuteMedia,
+        is AssistantCommand.UnmuteMedia -> volumeHandler.handle(command)
 
         is AssistantCommand.SilentMode,
         is AssistantCommand.VibrateMode,
@@ -76,6 +77,7 @@ class AndroidActionExecutor(
         is AssistantCommand.OpenBluetoothSettings,
         is AssistantCommand.OpenBatterySettings -> settingsHandler.handle(command)
 
-        is AssistantCommand.Unknown -> unknownHandler.handle(command)
+        is AssistantCommand.Unknown,
+        is AssistantCommand.Rejected -> unknownHandler.handle(command)
     }
 }

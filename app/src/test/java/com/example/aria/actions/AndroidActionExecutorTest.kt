@@ -106,6 +106,11 @@ class AndroidActionExecutorTest {
                 "$command was not routed to a real handler: ${result.message}",
                 result.message == ActionMessages.UNEXPECTED
             )
+            // PHASE 6.5: a Rejected command must reach its own outcome, never a
+            // generic failure and never a success.
+            if (command is AssistantCommand.Rejected) {
+                assertTrue("$command -> $result", result is ExecutionResult.Rejected)
+            }
         }
     }
 
@@ -159,6 +164,7 @@ class AndroidActionExecutorTest {
         AssistantCommand.SetVolume(40),
         AssistantCommand.SetVolume(40, com.example.aria.command.AudioStream.RING),
         AssistantCommand.MuteMedia,
+        AssistantCommand.UnmuteMedia,
         AssistantCommand.SilentMode,
         AssistantCommand.VibrateMode,
         AssistantCommand.NormalRingMode,
@@ -175,6 +181,7 @@ class AndroidActionExecutorTest {
         AssistantCommand.OpenWifiSettings,
         AssistantCommand.OpenBluetoothSettings,
         AssistantCommand.OpenBatterySettings,
-        AssistantCommand.Unknown("blah")
+        AssistantCommand.Unknown("blah"),
+        AssistantCommand.Rejected(com.example.aria.command.RejectionReason.COMPOUND_SENTENCE)
     )
 }
