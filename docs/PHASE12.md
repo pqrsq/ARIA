@@ -213,3 +213,33 @@ command/history semantics, Gradle/AGP/Kotlin, permissions. No new dependency.
 
 **Regression, polish and release work have not been started.** This is step 1 of 4;
 the phase stops here.
+
+---
+
+## 9. Build fix: the cap fixtures were in the wrong order
+
+Four cap tests failed. The code was right; the **fixtures were ascending** while the
+app's list is **newest-first**.
+
+`capHistory` keeps the first `max` elements, and `publish()` builds
+`listOf(newRecord) + oldHistory`, so index 0 is the newest. `FileHistoryStore.load`
+also sorts newest-first. My fixtures did `(1L..n).map(::record)` — ascending — and then
+read `first()`/`last()` as newest/oldest. That is backwards: with ascending ids the
+cap drops the *newest* and keeps the oldest, so assertions like
+`capped.last().id == 201` could never hold.
+
+Fixed by giving the tests the same shape the app produces:
+
+```kotlin
+/** index 0 is the NEWEST, like publish(): listOf(new) + old */
+private fun newest(count: Int): List<CommandRecord> =
+    (count downTo 1).map { record(it.toLong()) }
+```
+
+Every assertion then follows from the real convention: one over the cap keeps ids
+`MAX+1 … 2` and drops `1`; 500 keeps `500 … 301`; a cap of 3 on `10…1` keeps
+`10, 9, 8`. The two ViewModel cap tests were re-seeded newest-first as well, and the
+`assertEquals`/`assertNotEquals` on the evicted row now names the row it means.
+
+Test-only change — no production code touched. All 23 cap assertions were re-checked
+against the real semantics, including the store's sort-then-cap load path.
