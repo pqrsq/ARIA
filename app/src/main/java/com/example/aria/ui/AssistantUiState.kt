@@ -45,6 +45,26 @@ enum class AssistantStatus {
 }
 
 /**
+ * PHASE P1.6 — where an interaction came from.
+ *
+ * WHY IT EXISTS: speech recognition on a noisy device is unreliable, so a typed
+ * debug command and a spoken one can look identical in the history even though
+ * only one of them involved the microphone. Recording the origin makes every
+ * result attributable afterwards, and it costs nothing: the value travels with
+ * the same pipeline the voice path already uses.
+ *
+ * [VOICE] is the default everywhere, because voice is the product. [TEXT] is
+ * only ever produced by the debug text field.
+ */
+enum class InputSource {
+    /** A final result from the speech recogniser — the normal path. */
+    VOICE,
+
+    /** A command typed into the debug field. Never requests the microphone. */
+    TEXT
+}
+
+/**
  * One completed assistant interaction.
  *
  * This is deliberately a *pure data* class with no Android dependencies so it
@@ -63,7 +83,16 @@ data class CommandRecord(
     val commandType: String = "UNKNOWN_COMMAND",
     val handler: String = "—",
     val status: AssistantStatus = AssistantStatus.SUCCESS,
-    val message: String = ""
+    val message: String = "",
+    /**
+     * PHASE P1.6 — voice or debug text.
+     *
+     * LAST PARAMETER WITH A DEFAULT ON PURPOSE: it is appended, so every existing
+     * positional construction (and every `assertEquals` on a record in older
+     * tests) keeps its meaning. Adding it anywhere else would silently re-bind
+     * arguments.
+     */
+    val source: InputSource = InputSource.VOICE
 )
 
 /**
@@ -140,11 +169,27 @@ data class AssistantUiState(
      */
     val pendingCommand: AssistantCommand? = null,
     /** PHASE 6.5 (D2): the transcript that produced [pendingCommand]. */
-    val pendingRawSpeech: String? = null
+    val pendingRawSpeech: String? = null,
+    /**
+     * PHASE P1.6 — which input produced the CURRENT result card.
+     *
+     * VOICE for everything the recogniser finishes, TEXT only for the debug
+     * field. Defaults to VOICE so a state built before any interaction is
+     * honest: voice is the primary path.
+     */
+    val inputSource: InputSource = InputSource.VOICE
 ) {
-    /** True when there is at least one recognisable field worth showing. */
+    /**
+     * True when there is at least one recognisable field worth showing.
+     *
+     * PHASE P1.6: a REJECTED result is included. "Two commands in one sentence"
+     * carries neither a transcript nor a spoken reply, so before this the card
+     * would silently not appear and a typed (or spoken) compound sentence looked
+     * like nothing had happened.
+     */
     val hasResult: Boolean
-        get() = rawSpeech != null || message != null || lastSpokenText != null
+        get() = rawSpeech != null || message != null || lastSpokenText != null ||
+            status == AssistantStatus.REJECTED
 
     /** True while audio is playing, so the UI can pulse its "speaking" indicator. */
     val isSpeaking: Boolean

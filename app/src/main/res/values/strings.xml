@@ -45,6 +45,10 @@
     <string name="tts_muted_summary">Muted — replies are shown as text only</string>
     <string name="tts_unavailable">Text-to-Speech engine not available</string>
 
+    <!-- PHASE P1.6: debug-only text input (never shown unless debug mode is on) -->
+    <string name="debug_text_hint">Type a command</string>
+    <string name="debug_text_submit">Send</string>
+
     <!-- Developer settings -->
     <string name="debug_mode">Debug mode</string>
     <string name="debug_mode_summary">Show raw speech, normalized text, handler and result</string>

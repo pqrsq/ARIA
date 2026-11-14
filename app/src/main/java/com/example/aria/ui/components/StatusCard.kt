@@ -170,6 +170,10 @@ private fun DebugBlock(state: AssistantUiState) {
             style = MaterialTheme.typography.labelSmall,
             color = AriaColors.Warning
         )
+        // PHASE P1.6: which input produced this card. First, because it changes
+        // how every line below should be read (a typed command never involved
+        // the recogniser, so "raw speech" is the typed text).
+        DebugLine("input", state.inputSource.name.lowercase())
         DebugLine("raw speech", state.rawSpeech ?: "—")
         DebugLine("normalized", state.normalizedText ?: "—")
         DebugLine("command", state.commandType ?: "—")

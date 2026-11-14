@@ -209,6 +209,29 @@ class AssistantViewModel(
     }
 
     /**
+     * PHASE P1.6 — the debug text field's submit.
+     *
+     * ── WHY THIS IS ONE LINE ────────────────────────────────────────────────
+     * Typed input must exercise the SAME code as speech, or it is worthless as a
+     * testing affordance: a separate "text path" would let the parser pass in
+     * tests while the real voice path differed. So this method does nothing
+     * except label the origin and hand the string to [runCommand], the exact
+     * function a final recogniser result calls.
+     *
+     * WHAT IT DELIBERATELY DOES NOT DO: no permission check, no
+     * `startListening()`, no recogniser call. Typing must work on a device whose
+     * microphone is denied or whose recognition service is missing — that is
+     * half the point of the field.
+     *
+     * A blank string is a no-op rather than a FAIL row: a mis-tapped submit
+     * button is not a failed command, and the debug list would fill with noise.
+     */
+    fun onSubmitTextInput(text: String) {
+        if (text.isBlank()) return
+        runCommand(text, InputSource.TEXT)
+    }
+
+    /**
      * Called by the screen once the system permission dialog is answered.
      *
      * @param granted whether `RECORD_AUDIO` is now held.
@@ -237,6 +260,10 @@ class AssistantViewModel(
         _uiState.update {
             it.copy(
                 status = AssistantStatus.LISTENING,
+                // PHASE P1.6: the current interaction is voice again. Without
+                // this, a card left behind by a typed command would keep claiming
+                // TEXT while the microphone is open.
+                inputSource = InputSource.VOICE,
                 rawSpeech = null,
                 normalizedText = null,
                 commandType = null,
@@ -299,6 +326,22 @@ class AssistantViewModel(
             onFailure(SpeechError.NO_MATCH)
             return
         }
+        runCommand(text, InputSource.VOICE)
+    }
+
+    /**
+     * PHASE P1.6 — THE one pipeline, shared by voice and debug text.
+     *
+     * Everything that makes a command correct lives here and only here: parse off
+     * the main thread, duplicate suppression before any side effect, barge-in on
+     * TTS, the cancellation guard, the acknowledge-then-execute-then-publish
+     * order. [onFinalResult] and [onSubmitTextInput] are both just callers, which
+     * is what guarantees typed input cannot drift from speech.
+     *
+     * [source] is carried for attribution only; it changes no behaviour. That is
+     * deliberate — a debug affordance must not alter the thing it is testing.
+     */
+    private fun runCommand(text: String, source: InputSource) {
 
         // A new utterance supersedes any execution still in flight. Cancelling is
         // correct rather than rude: a result computed for the *previous* sentence
@@ -334,6 +377,7 @@ class AssistantViewModel(
             _uiState.update {
                 it.copy(
                     status = AssistantStatus.PROCESSING,
+                    inputSource = source,
                     rawSpeech = text,
                     normalizedText = text.lowercase().trim(),
                     commandType = null,
@@ -360,7 +404,7 @@ class AssistantViewModel(
 
             val result = executeSafely(command)
 
-            publish(text, command, commandType, result)
+            publish(text, command, commandType, result, source)
         }
     }
 
@@ -394,7 +438,8 @@ class AssistantViewModel(
         text: String,
         command: AssistantCommand,
         commandType: String,
-        result: ExecutionResult
+        result: ExecutionResult,
+        source: InputSource
     ) {
         val status = statusFor(result)
         val record = CommandRecord(
@@ -405,12 +450,14 @@ class AssistantViewModel(
             commandType = commandType,
             handler = HandlerNames.forCommand(command),
             status = status,
-            message = result.message
+            message = result.message,
+            source = source
         )
 
         _uiState.update {
             it.copy(
                 status = status,
+                inputSource = source,
                 rawSpeech = record.rawSpeech,
                 normalizedText = record.normalizedText,
                 commandType = record.commandType,
@@ -491,6 +538,7 @@ class AssistantViewModel(
         val settled = settledState ?: return this
         return copy(
             status = settled.status,
+            inputSource = settled.inputSource,
             rawSpeech = settled.rawSpeech,
             normalizedText = settled.normalizedText,
             commandType = settled.commandType,
@@ -771,6 +819,9 @@ class AssistantViewModel(
 
         val command = state.pendingCommand
         val spokenText = state.pendingRawSpeech ?: state.rawSpeech ?: ""
+        // PHASE P1.6: the retry keeps the ORIGIN of the refused attempt, so a
+        // typed command that needed a permission does not come back as VOICE.
+        val source = state.inputSource
 
         _uiState.update {
             it.copy(
@@ -790,7 +841,7 @@ class AssistantViewModel(
             remember(command)
             acknowledgeOutLoud()
             val result = executeSafely(command)
-            publish(spokenText, command, commandTypeFor(command), result)
+            publish(spokenText, command, commandTypeFor(command), result, source)
         }
     }
 
@@ -833,7 +884,19 @@ class AssistantViewModel(
         }
     }
 
-    /** Prepends a FAIL history row for an attempt that produced no transcript. */
+    /**
+     * Prepends a FAIL history row for an attempt that produced no transcript.
+     *
+     * PHASE P1.6: the row is VOICE, unconditionally, because EVERY caller of this
+     * is a speech failure (no match, no speech service, a recogniser error) — the
+     * failure events can only originate from the recogniser. The debug text path
+     * cannot reach it: blank typed input is a no-op before the pipeline starts,
+     * and a non-blank one always produces a real command.
+     *
+     * WHY NOT READ THE CARD'S SOURCE: an earlier version did, and it was wrong —
+     * after a typed command the card still said TEXT, so the next *spoken*
+     * failure was recorded against the wrong input.
+     */
     private fun AssistantUiState.withFailureRow(error: SpeechError): List<CommandRecord> =
         listOf(
             CommandRecord(
@@ -843,7 +906,8 @@ class AssistantViewModel(
                 commandType = NO_COMMAND_YET,
                 handler = NO_HANDLER_YET,
                 status = AssistantStatus.ERROR,
-                message = SpeechMessages.forError(error)
+                message = SpeechMessages.forError(error),
+                source = InputSource.VOICE
             )
         ) + history
 
