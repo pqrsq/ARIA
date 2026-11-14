@@ -7,7 +7,7 @@ a977bb0b2217ecb6  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
 e0bbc46cc9643880  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
 63c3e69258efb332  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
-53035da4a0338188  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
+5251119eaccaa9ff  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
 767cb5a7867804bf  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
 88f617f9739d4364  app/src/main/AndroidManifest.xml
 710a663ffaa6d41f  app/src/main/java/com/example/aria/AriaApplication.kt
@@ -47,7 +47,7 @@ ad627ac81a04093f  app/src/main/java/com/example/aria/command/AudioStream.kt
 35c2ac2568fa6acc  app/src/main/java/com/example/aria/command/CommandParser.kt
 c41284bc7df26f0e  app/src/main/java/com/example/aria/command/RuleBasedCommandParser.kt
 f95a0392e45242d9  app/src/main/java/com/example/aria/command/TextNormalizer.kt
-bb7da6475a6f464f  app/src/main/java/com/example/aria/history/FileHistoryStore.kt
+2898c0e65b675caf  app/src/main/java/com/example/aria/history/FileHistoryStore.kt
 109fa1fc28fb30b1  app/src/main/java/com/example/aria/history/HistoryStore.kt
 433d91a30433c909  app/src/main/java/com/example/aria/permissions/PermissionManager.kt
 2c46a7f240633657  app/src/main/java/com/example/aria/permissions/PolicyAccessChecker.kt
@@ -112,7 +112,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 fe1cbca9b2eb3b5d  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
-f1fa664d54ee8298  docs/PHASE12.md
+9470eb5268ac5f3a  docs/PHASE12.md
 089f40b35ccb1460  docs/PHASE2.md
 086f367110e3da9f  docs/PHASE3.md
 d3ed851b91ecd99e  docs/PHASE4.md
@@ -123,7 +123,7 @@ fcb98bb70271e9bc  docs/PHASE6.5.md
 514e5df3d555916c  docs/PROJECT_GUIDE.md
 13e4c8a69c2152fc  docs/TROUBLESHOOTING.md
 87d2b0fb37979021  gradle.properties
-6932091c294cd6b2  gradle/libs.versions.toml
+801c89f798f4a51c  gradle/libs.versions.toml
 498495120a03b9a6  gradle/wrapper/gradle-wrapper.jar
 3d91f0932da99885  gradle/wrapper/gradle-wrapper.properties
 a3648413b47ef77a  gradlew

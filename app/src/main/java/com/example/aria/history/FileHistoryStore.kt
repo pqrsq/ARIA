@@ -91,7 +91,13 @@ class FileHistoryStore(
         val target = file
         val temporary = File(directory, "$FILE_NAME.tmp")
         try {
-            directory.mkdirs()
+            // HOTFIX: create the TARGET's parent, not just the constructor's
+            // directory. Those are normally the same object, but "honour the
+            // directory that was given" is the contract, and `file.parentFile`
+            // is what actually has to exist for the rename to land. Using
+            // `directory.mkdirs()` made save() silently depend on the caller
+            // passing an already-usable File.
+            target.parentFile?.mkdirs()
             temporary.writeText(array.toString())
             // Rename over the real file. On failure, remove the temp so a later
             // read cannot pick up a half-written file.

@@ -243,3 +243,66 @@ Every assertion then follows from the real convention: one over the cap keeps id
 
 Test-only change — no production code touched. All 23 cap assertions were re-checked
 against the real semantics, including the store's sort-then-cap load path.
+
+---
+
+## 10. Hotfix — instrumented-test baseline (no app behaviour change)
+
+Three items, nothing else touched.
+
+**1. `gradle/libs.versions.toml`** — two version bumps:
+
+| key | before | after |
+|---|---|---|
+| `espresso` | 3.6.1 | **3.7.0** |
+| `androidxTestJunit` | 1.2.1 | **1.3.0** |
+
+The explicit `androidx-test-espresso-core` dependency in `app/build.gradle.kts` is
+kept on purpose: Compose `ui-test-junit4` pulls an older espresso transitively, and
+without the explicit declaration the resolved version would silently be the old one.
+No Compose BOM, AGP, Kotlin or app-code change.
+
+**2. `FileHistoryStore.save()`** — `file.parentFile?.mkdirs()` before writing the temp
+file, replacing `directory.mkdirs()`.
+
+They look equivalent (the file is built from the directory) but they are not the same
+contract: the thing that must exist for the rename to land is the **target's parent**,
+not the constructor's argument. A sandbox reproduction of both paths shows the
+difference — with the old line, `save` reported success while no file appeared:
+
+```
+old: save() returns true, history.json exists -> False
+new: save() returns true, history.json exists -> True, round-trips
+```
+
+**3. One test assertion corrected, `save_createsTheDirectoryWhenMissing`.** It read
+back through `newStore()` — the **root** test directory — while the file under test had
+been written to `directory/nested/does-not-exist`. That assertion could only ever
+prove that a *different* location was empty, so it would have failed even with the
+store correct. It now round-trips through `store.load()`: the store that wrote the file
+is the one that must read it.
+
+### Build results
+
+**Not executed — the sandbox has no JDK, no Android SDK and no `adb`/device.**
+
+```
+$ bash gradlew :app:testDebugUnitTest --rerun-tasks
+ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
+
+$ bash gradlew :app:connectedDebugAndroidTest
+ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
+```
+
+`java`, `javac`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` and `adb` are all absent, so
+neither command could even reach Gradle configuration. To be run on the Windows
+machine:
+
+```powershell
+.\gradlew :app:testDebugUnitTest --rerun-tasks
+.\gradlew :app:connectedDebugAndroidTest
+```
+
+Expected: 385/385 unit tests; 28 instrumented, including
+`HistoryStoreInstrumentedTest.save_createsTheDirectoryWhenMissing`, which is the test
+this hotfix exists to satisfy.
