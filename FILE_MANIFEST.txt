@@ -49,7 +49,7 @@ e948e26ca3402d20  app/src/main/java/com/example/aria/command/RuleBasedCommandPar
 2c46a7f240633657  app/src/main/java/com/example/aria/permissions/PolicyAccessChecker.kt
 7587c19163a49acb  app/src/main/java/com/example/aria/ui/AssistantScreen.kt
 e96d75dc35dd8bd7  app/src/main/java/com/example/aria/ui/AssistantUiState.kt
-567ad991a8df7a8e  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
+3ffc60896fef69ba  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
 7892cb44b9b6b4c6  app/src/main/java/com/example/aria/ui/MicrophonePermissionController.kt
 d41a84c5a68ee044  app/src/main/java/com/example/aria/ui/ViewModelFactory.kt
 4ad2243f9eef395d  app/src/main/java/com/example/aria/ui/components/DebugSettingsSheet.kt
