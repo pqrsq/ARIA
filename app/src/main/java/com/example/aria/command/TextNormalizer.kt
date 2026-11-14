@@ -147,7 +147,6 @@ object TextNormalizer {
             val matchable = toMatchable(result)
             for (filler in TRAILING_COURTESY) {
                 if (matchable == filler) return ""
-                if (!matchable.endsWithWord(filler)) continue
 
                 val fillerWordCount = filler.split(WHITESPACE).size
                 val words = result.split(WHITESPACE).filter { it.isNotBlank() }
@@ -195,6 +194,9 @@ object TextNormalizer {
 /** True when this matchable phrase starts with [word] as a whole word. */
 internal fun String.startsWithWord(word: String): Boolean =
     this == word || this.startsWith("$word ")
+/** True when [word] is the last whole word of this matchable phrase (Phase P1.2). */
+internal fun String.endsWithWord(word: String): Boolean =
+    this == word || this.endsWith(" $word")
 
 /**
  * PHASE P1.2 — drops ", please" / ", thanks" / ", thank you" from the end of an
