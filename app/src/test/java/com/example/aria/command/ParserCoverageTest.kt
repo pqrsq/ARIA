@@ -93,9 +93,21 @@ class ParserCoverageTest {
     fun `regression - only a real trailing courtesy phrase is dropped`() {
         // The strip is conditional in BOTH directions: a courtesy is removed only
         // from the END, and a word that merely CONTAINS it is untouched.
+        //
+        // NOTE ON THE LEADING CASE: "please pause the music" comes back as
+        // "pause the music", because stripLeadingFillers (Phase 5) already removes
+        // that "please" — the trailing strip is not what did it. Asserting
+        // "please pause the music" here would be asserting that a leading filler
+        // SURVIVES, which was never true.
         assertEquals("pause the music", TextNormalizer.normalize("pause the music please").normalized)
-        assertEquals("please pause the music", TextNormalizer.normalize("please pause the music").normalized)
+        assertEquals("pause the music", TextNormalizer.normalize("please pause the music").normalized)
+
+        // "pleased" merely CONTAINS "please" and must not be treated as courtesy.
         assertEquals("pleased to meet you", TextNormalizer.normalize("pleased to meet you").normalized)
+        // "thanks giving" is the same shape: "thanks" is not the last word.
+        assertEquals("thanks giving plans", TextNormalizer.normalize("thanks giving plans").normalized)
+
+        // Politeness-only utterances collapse to blank (the blank-input contract).
         assertEquals("", TextNormalizer.normalize("please").normalized)
         assertEquals("", TextNormalizer.normalize("thanks").normalized)
     }

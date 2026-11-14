@@ -191,3 +191,23 @@ environment cannot compile-test.
   `pleased to meet you` are untouched, while `please` and `thanks` collapse to `""`.
 
 Unit test count: **345 → 347**. Still not executed in the authoring sandbox.
+
+## 9. Test-expectation fix: leading vs trailing politeness
+
+One assertion in the new guard test was wrong, and the *production code* was
+right. `normalize("please pause the music")` returns `"pause the music"`, because
+`stripLeadingFillers` (Phase 5) removes the leading `please`. The test asserted
+`"please pause the music"` — i.e. it asserted that a leading filler survives
+normalisation, which was never true and was not claimed by P1.2.
+
+Corrected, and widened so the test measures what it says:
+
+| Input | `normalized` | Why |
+|---|---|---|
+| `pause the music please` | `pause the music` | trailing courtesy dropped |
+| `please pause the music` | `pause the music` | **leading** filler dropped (Phase 5) |
+| `pleased to meet you` | `pleased to meet you` | merely *contains* "please" |
+| `thanks giving plans` | `thanks giving plans` | "thanks" is not the last word |
+| `please` / `thanks` | `""` | blank-input contract |
+
+Production code unchanged in this follow-up — one test file and the manifest.
