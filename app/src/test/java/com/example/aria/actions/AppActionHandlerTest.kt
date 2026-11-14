@@ -59,7 +59,10 @@ class AppActionHandlerTest {
         val result = handler.handle(AssistantCommand.OpenApp("Photoshop"))
 
         assertEquals(
-            ExecutionResult.Failure("Could not find an app named \"Photoshop\"."),
+            ExecutionResult.Failure(
+                "Could not find an app named \"Photoshop\".",
+                FailureReason.APP_NOT_FOUND
+            ),
             result
         )
         assertTrue("Nothing may be launched", launcher.launched.isEmpty())
@@ -98,8 +101,13 @@ class AppActionHandlerTest {
 
         val result = AppActionHandler(apps, blocked).handle(AssistantCommand.OpenApp("Chrome"))
 
+        // PHASE 6.5 (A1): the sentence is the same, but a launch that was refused
+        // is now tagged LAUNCH_FAILED rather than sharing APP_NOT_FOUND's reason.
         assertEquals(
-            ExecutionResult.Failure("Could not find an app named \"Chrome\"."),
+            ExecutionResult.Failure(
+                "Could not find an app named \"Chrome\".",
+                FailureReason.LAUNCH_FAILED
+            ),
             result
         )
     }

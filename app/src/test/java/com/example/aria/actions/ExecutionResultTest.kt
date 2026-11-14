@@ -129,11 +129,20 @@ class ExecutionResultTest {
     }
 
     @Test
-    fun `every command gets a distinct non-blank id`() {
+    fun `every command gets a non-blank id from its own type`() {
+        // PHASE 6.5: ids come from the command's CLASS, not from its value, so
+        // two values of one type (SetVolume(10) vs SetVolume(90), the two
+        // Rejected reasons) deliberately share an id — they are one command type
+        // in the history and the debug log. The assertion is therefore that every
+        // id is non-blank and equals its own simple name, not that all ids differ.
         val ids = allCommands().map { CommandTypeNaming.of(it) }
 
         assertTrue("A command produced a blank id", ids.all { it.isNotBlank() })
-        assertEquals("Two commands share an id", ids.size, ids.toSet().size)
+        assertEquals(
+            "Two different command TYPES share an id",
+            ids.distinct().size,
+            allCommands().map { it::class.simpleName }.distinct().size
+        )
     }
 
     @Test

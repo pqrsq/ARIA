@@ -26,7 +26,7 @@ guessing, and makes the card keep telling the truth after it has been spoken.
 
 | # | Before (Phase 6, confirmed in the code) | After (Phase 6.5) |
 |---|---|---|
-| **D1** | `onFinalResult` reset the card to `PROCESSING` and cleared the card fields **before** the duplicate check; a suppressed duplicate then returned early, so the UI stayed on "Processing…" with no result | Parse and duplicate-check first. The card is reset **only when there is work to do**. A suppressed duplicate leaves the previous settled card untouched (and clears no state) |
+| **D1** | `onFinalResult` reset the card to `PROCESSING` and cleared the card fields **before** the duplicate check; a suppressed duplicate then returned early, so the UI stayed on "Processing…" with no result | Parse and duplicate-check first. The card is reset **only when there is work to do**. A suppressed duplicate **restores** the previous settled card from a snapshot taken at publish time — see §4, because "leave it untouched" is not enough: the recogniser has already overwritten it with LISTENING/PROCESSING for the repeated utterance |
 | **D2** | `pendingSettingsAction` was stored and never used: the user was told a permission was missing and had no way to act on it | `StatusCard` shows an **"Open settings"** button when the state carries an action. Tapping it launches `Intent(action)` and catches `ActivityNotFoundException`. On `ON_RESUME` the UI calls `viewModel.onReturnedFromSettings()`, which re-asks the injected `PolicyAccessChecker` and, if granted, **retries the stored command**, then clears the hint. ARIA never opens Settings by itself and never clears the hint merely because a screen was launched |
 | **D3** | `looksLikeAppName` required a capital letter, so Samsung's all-lowercase recogniser output turned "open chrome" into `Unknown` | The capitalisation requirement is gone; `AppNameMatcher` (which sees the real installed list) is the authority. Leading "the" and trailing "app" are stripped. `NON_ENTITIES`, `STOP_WORDS`, ordering and "open settings" → `OpenSettings` are preserved |
 | **D4** | `\blouder\b` / `\bquieter\b` used `containsMatchIn`, so "the movie was louder than I expected" changed the volume | Those two forms are whole-utterance patterns (plus optional "please"). Bare "louder"/"quieter" still work, and "make it louder" keeps its own anchored pattern |
@@ -70,6 +70,16 @@ back as `ExecutionResult.Rejected`, which maps to the new neutral
 UI. Deciding whether the permission is now granted must be JVM-testable, so it sits
 behind the existing `PolicyAccessChecker` port, injected into the ViewModel.
 `AssistantViewModel` still imports no Android UI type.
+
+**Why a suppressed duplicate RESTORES rather than does nothing (D1, second
+round).** The first version simply returned early, on the theory that "the card is
+still the old one". It is not: the recogniser has already driven it through
+`LISTENING` and `PROCESSING` for the repeated utterance, and `startListening()`
+cleared the visible fields. The device run showed `a suppressed duplicate leaves
+the card settled` failing for exactly that reason. The ViewModel now snapshots the
+card at publish time (`settledState`) and restores its visible fields when a
+duplicate is suppressed, so the user is looking at the first result again. The
+snapshot is dropped by `clearHistory()` so a cleared card cannot come back.
 
 **Why the retry stores the raw text too.** The stored command is retried as the
 command it was (a re-parse could, in principle, produce something different); the
