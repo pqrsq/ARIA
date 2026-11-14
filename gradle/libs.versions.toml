@@ -17,8 +17,8 @@ activityCompose = "1.9.3"
 composeBom = "2024.12.01"
 junit = "4.13.2"
 coroutines = "1.8.1"
-androidxTestJunit = "1.2.1"
-espresso = "3.6.1"
+androidxTestJunit = "1.3.0"
+espresso = "3.7.0"
 
 [libraries]
 # --- Core / lifecycle ---

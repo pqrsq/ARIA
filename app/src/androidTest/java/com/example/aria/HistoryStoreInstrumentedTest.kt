@@ -214,6 +214,11 @@ class HistoryStoreInstrumentedTest {
         store.save(listOf(record(1)))
 
         assertTrue(store.file.isFile)
-        assertFalse(newStore().load().isEmpty())
+        // Read back through THE SAME store. The assertion used to call
+        // `newStore()`, which points at the root test directory — a different
+        // location from the nested one that was just written, so it could only
+        // ever prove that some *other* file was empty. The store under test is
+        // the one that must round-trip.
+        assertFalse(store.load().isEmpty())
     }
 }
