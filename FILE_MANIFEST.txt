@@ -5,10 +5,10 @@ This file does not list itself (its own hash would change once written).
 04e094d6ece30836  .gitignore
 a977bb0b2217ecb6  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
-e0bbc46cc9643880  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
-63c3e69258efb332  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
+44e9a3e243fdf6eb  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
+4acc6d657e719822  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
 5251119eaccaa9ff  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
-767cb5a7867804bf  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
+fa3075f894dc89b7  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
 88f617f9739d4364  app/src/main/AndroidManifest.xml
 710a663ffaa6d41f  app/src/main/java/com/example/aria/AriaApplication.kt
 b4757b748c2c8981  app/src/main/java/com/example/aria/MainActivity.kt
@@ -109,7 +109,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 8cde6876af2ed692  artifacts/aria-phase1-androidTest.apk
 0981db0bdc16ae74  artifacts/aria-phase1-debug.apk
 16e0e9395413c907  build.gradle.kts
-fe1cbca9b2eb3b5d  docs/PHASE-P1.6.md
+035ddfb1a33a1a33  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
 9470eb5268ac5f3a  docs/PHASE12.md

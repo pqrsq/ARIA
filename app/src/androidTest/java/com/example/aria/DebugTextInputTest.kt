@@ -1,9 +1,12 @@
 package com.example.aria
 
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -31,7 +34,19 @@ import org.junit.runner.RunWith
 class DebugTextInputTest {
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    /**
+     * Fails unless Compose actually has a hierarchy to query.
+     *
+     * WHY THIS EXISTS: `assertDoesNotExist()` also passes when there is **no
+     * semantics tree at all**, so an absence test can go green while the rule
+     * never hosted any content — a vacuous pass. Anchoring on `onRoot()` first
+     * makes "the field is absent" mean "the field is absent *from a real tree*".
+     */
+    private fun assertComposeHierarchyExists() {
+        composeRule.onRoot().assertExists()
+    }
 
     @Test
     fun debugOff_hidesTheFieldEntirely() {
@@ -44,6 +59,10 @@ class DebugTextInputTest {
             }
         }
 
+        // Non-vacuity guard FIRST: without it this test would also pass if the
+        // rule never hosted anything, which is precisely how it stayed green
+        // while its siblings failed.
+        assertComposeHierarchyExists()
         composeRule.onNodeWithTag(DEBUG_TEXT_FIELD_TAG).assertDoesNotExist()
         composeRule.onNodeWithTag(DEBUG_TEXT_SUBMIT_TAG).assertDoesNotExist()
     }
@@ -108,9 +127,16 @@ class DebugTextInputTest {
             }
         }
 
-        composeRule.onNodeWithTag(DEBUG_TEXT_FIELD_TAG).performTextInput("turn the volume up")
+        // A DISABLED TextField rejects typed input by design, so `performTextInput`
+        // fails with "Failed to assert the following: (is enabled)" — the test was
+        // asserting through an action that the state under test forbids. What the
+        // contract actually says is "this field cannot be used": that is an
+        // `assertIsNotEnabled`, not an interaction.
+        composeRule.onNodeWithTag(DEBUG_TEXT_FIELD_TAG).assertIsNotEnabled()
+        composeRule.onNodeWithTag(DEBUG_TEXT_SUBMIT_TAG).assertIsNotEnabled()
+        // …and nothing is submitted even if a click is delivered.
         composeRule.onNodeWithTag(DEBUG_TEXT_SUBMIT_TAG).performClick()
 
-        assertEquals(0, calls)
+        assertEquals("a disabled field must never submit", 0, calls)
     }
 }

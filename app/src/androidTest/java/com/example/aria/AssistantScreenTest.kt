@@ -1,7 +1,8 @@
 package com.example.aria
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.aria.ui.AssistantStatus
@@ -22,7 +23,7 @@ import org.junit.runner.RunWith
 class AssistantScreenTest {
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun historyRow_showsSpeechAndCommandType() {
@@ -43,7 +44,10 @@ class AssistantScreenTest {
         }
 
         composeRule.onNodeWithText("Turn the volume down").assertIsDisplayed()
-        composeRule.onNodeWithText("VOLUME_DOWN").assertIsDisplayed()
+        // P1.6 appended the input-source marker to the command-type line, so the
+        // row reads "VOLUME_DOWN · VOICE". The old exact match could no longer
+        // find the node.
+        composeRule.onNodeWithText("VOLUME_DOWN · VOICE").assertIsDisplayed()
         composeRule.onNodeWithText("OK").assertIsDisplayed()
     }
 
