@@ -313,8 +313,17 @@ class AssistantViewModel(
             val command = withContext(computeDispatcher) { commandParser.parse(text) }
 
             if (isDuplicate(command)) {
-                // Nothing is executed twice, and nothing is republished: the card
-                // still describes the first, identical attempt, in a settled state.
+                // PHASE 6.5 (D1): nothing is executed twice, and the card must go
+                // back to describing the FIRST attempt — which is still what it
+                // holds, since publish() has not run again.
+                //
+                // WHY THE CARD IS REBUILT RATHER THAN LEFT ALONE: by the time this
+                // runs, the recogniser has already driven the card through
+                // LISTENING and PROCESSING for this repeat, and startListening()
+                // cleared the visible fields. "Leave the previous card untouched"
+                // therefore has to mean *restore* it, or the user is left looking
+                // at "Processing…" — the exact defect D1 was meant to remove.
+                _uiState.update { it.copy(suppressedDuplicateState()) }
                 return@launch
             }
             remember(command)
@@ -420,6 +429,11 @@ class AssistantViewModel(
             )
         }
 
+        // PHASE 6.5 (D1): snapshot the card *before* speaking, so a later
+        // suppressed duplicate can put the user back on this settled result
+        // instead of the LISTENING/PROCESSING state its own recognition caused.
+        rememberSettledState(_uiState.value)
+
         // The result sentence is what gets spoken: the user asked for something,
         // so being told what actually happened is the useful reply. The rotating
         // "I heard you" acknowledgements stay as the pre-execution sound.
@@ -455,6 +469,40 @@ class AssistantViewModel(
      */
     private fun commandTypeFor(command: AssistantCommand): String =
         CommandTypeNaming.of(command)
+
+    /** PHASE 6.5 (D1) — the settled card of the last executed command. */
+    private var settledState: AssistantUiState? = null
+
+    /** PHASE 6.5 (D1) — records the card as it was after [publish]. */
+    private fun rememberSettledState(state: AssistantUiState) {
+        settledState = state
+    }
+
+    /**
+     * PHASE 6.5 (D1) — the card a suppressed duplicate must show.
+     *
+     * Copies the visible fields of the last settled card — everything except the
+     * live speaking flags, which the recognition pass just changed and which must
+     * not be resurrected. When there is no snapshot (defensive: a duplicate can
+     * only exist after a publish) the current state is returned unchanged.
+     */
+    private fun AssistantUiState.suppressedDuplicateState(): AssistantUiState {
+        val settled = settledState ?: return this
+        return copy(
+            status = settled.status,
+            rawSpeech = settled.rawSpeech,
+            normalizedText = settled.normalizedText,
+            commandType = settled.commandType,
+            commandLabel = settled.commandLabel,
+            handler = settled.handler,
+            message = settled.message,
+            spokenReply = settled.spokenReply,
+            lastSpokenText = settled.lastSpokenText,
+            pendingSettingsAction = settled.pendingSettingsAction,
+            pendingCommand = settled.pendingCommand,
+            pendingRawSpeech = settled.pendingRawSpeech
+        )
+    }
 
     /** True when [command] is identical to the one executed moments ago. */
     private fun isDuplicate(command: AssistantCommand): Boolean {
@@ -822,6 +870,9 @@ class AssistantViewModel(
     }
 
     fun clearHistory() {
+        // PHASE 6.5 (D1): the snapshot must go with the history, or a duplicate
+        // spoken just after a clear would resurrect the card that was cleared.
+        settledState = null
         _uiState.update { it.copy(history = emptyList(), isAwaitingPermission = false) }
     }
 

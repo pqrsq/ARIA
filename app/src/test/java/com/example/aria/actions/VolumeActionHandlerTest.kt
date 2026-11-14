@@ -72,7 +72,11 @@ class VolumeActionHandlerTest {
         val result = VolumeActionHandler(deaf).handle(AssistantCommand.VolumeUp)
 
         assertFalse("$result", result.isSuccess)
-        assertEquals(ExecutionResult.Failure("Media volume did not change."), result)
+        // PHASE 6.5 (A1): the sentence is unchanged; the reason is now typed.
+        assertEquals(
+            ExecutionResult.Failure("Media volume did not change.", FailureReason.NOT_SUPPORTED),
+            result
+        )
     }
 
     // --- Fixed volume ---------------------------------------------------------
@@ -141,7 +145,10 @@ class VolumeActionHandlerTest {
 
         // Requested 20%, still at 60%: the user must be told the truth.
         assertEquals(
-            ExecutionResult.Failure("Media volume could not be set to 20%; it is 60%."),
+            ExecutionResult.Failure(
+                "Media volume could not be set to 20%; it is 60%.",
+                FailureReason.INVALID_PARAMETER
+            ),
             result
         )
     }
@@ -189,7 +196,10 @@ class VolumeActionHandlerTest {
 
         val result = VolumeActionHandler(deaf).handle(AssistantCommand.MuteMedia)
 
-        assertEquals(ExecutionResult.Failure("Media could not be muted."), result)
+        assertEquals(
+            ExecutionResult.Failure("Media could not be muted.", FailureReason.INVALID_PARAMETER),
+            result
+        )
     }
 
     @Test

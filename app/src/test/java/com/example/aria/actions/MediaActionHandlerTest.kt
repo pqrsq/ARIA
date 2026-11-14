@@ -63,7 +63,10 @@ class MediaActionHandlerTest {
 
         val result = MediaActionHandler(launcher, deaf).handle(AssistantCommand.PauseMusic)
 
-        assertEquals(ExecutionResult.Failure(ActionMessages.MEDIA_UNAVAILABLE), result)
+        assertEquals(
+            ExecutionResult.Failure(ActionMessages.MEDIA_UNAVAILABLE, FailureReason.LAUNCH_FAILED),
+            result
+        )
     }
 
     @Test

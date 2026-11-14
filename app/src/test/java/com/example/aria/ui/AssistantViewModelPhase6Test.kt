@@ -433,12 +433,19 @@ class AssistantViewModelPhase6Test {
         val settled = vm.uiState.value.status
         assertEquals(AssistantStatus.SUCCESS, settled)
 
+        val settledMessage = vm.uiState.value.message
+
         nowMillis += 300L
         vm.say("volume up")
 
         assertEquals("Executed once", 1, executor.executed.size)
         assertNotEquals("Must not be stuck processing", AssistantStatus.PROCESSING, vm.uiState.value.status)
-        assertEquals("The earlier card is untouched", settled, vm.uiState.value.status)
+        assertEquals("The earlier card is restored", settled, vm.uiState.value.status)
+        // Not just the status: the whole settled card comes back, because the
+        // recogniser's LISTENING pass had cleared these fields.
+        assertEquals(settledMessage, vm.uiState.value.message)
+        assertEquals("volume up", vm.uiState.value.rawSpeech)
+        assertEquals("VOLUME_UP", vm.uiState.value.commandType)
     }
 
     @Test

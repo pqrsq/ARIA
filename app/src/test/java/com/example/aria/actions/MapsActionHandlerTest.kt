@@ -69,7 +69,10 @@ class MapsActionHandlerTest {
 
         val result = MapsActionHandler(blocked).handle(AssistantCommand.NavigateTo("Milan"))
 
-        assertEquals(ExecutionResult.Failure("No map app is installed"), result)
+        assertEquals(
+            ExecutionResult.Failure(ActionMessages.NO_MAP_APP, FailureReason.NOT_SUPPORTED),
+            result
+        )
     }
 
     @Test
