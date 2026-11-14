@@ -6,7 +6,7 @@ This file does not list itself (its own hash would change once written).
 a977bb0b2217ecb6  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
 e0bbc46cc9643880  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
-dda68a35ef74f561  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
+767cb5a7867804bf  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
 b9afc92094ec95bf  app/src/main/AndroidManifest.xml
 707fcb1fa6ae5db2  app/src/main/java/com/example/aria/AriaApplication.kt
 b4757b748c2c8981  app/src/main/java/com/example/aria/MainActivity.kt
@@ -43,13 +43,13 @@ f336cda6b1975ff0  app/src/main/java/com/example/aria/actions/VolumeActionHandler
 c5eb9742086dad8a  app/src/main/java/com/example/aria/command/AssistantCommand.kt
 ad627ac81a04093f  app/src/main/java/com/example/aria/command/AudioStream.kt
 35c2ac2568fa6acc  app/src/main/java/com/example/aria/command/CommandParser.kt
-bd88ba6e909f3937  app/src/main/java/com/example/aria/command/RuleBasedCommandParser.kt
+e948e26ca3402d20  app/src/main/java/com/example/aria/command/RuleBasedCommandParser.kt
 1d3ad5116a90e04a  app/src/main/java/com/example/aria/command/TextNormalizer.kt
 433d91a30433c909  app/src/main/java/com/example/aria/permissions/PermissionManager.kt
 2c46a7f240633657  app/src/main/java/com/example/aria/permissions/PolicyAccessChecker.kt
 7587c19163a49acb  app/src/main/java/com/example/aria/ui/AssistantScreen.kt
 e96d75dc35dd8bd7  app/src/main/java/com/example/aria/ui/AssistantUiState.kt
-c1ead9632b905142  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
+7027344b8e2057a0  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
 7892cb44b9b6b4c6  app/src/main/java/com/example/aria/ui/MicrophonePermissionController.kt
 d41a84c5a68ee044  app/src/main/java/com/example/aria/ui/ViewModelFactory.kt
 4ad2243f9eef395d  app/src/main/java/com/example/aria/ui/components/DebugSettingsSheet.kt
@@ -87,10 +87,10 @@ f98bd82577783883  app/src/test/java/com/example/aria/actions/MediaActionHandlerT
 4bb01d874bac2637  app/src/test/java/com/example/aria/actions/VolumeActionHandlerTest.kt
 87293fb03f8fdf7f  app/src/test/java/com/example/aria/actions/VolumeHardeningTest.kt
 400341faa91c6c86  app/src/test/java/com/example/aria/command/AssistantCommandTest.kt
-30e44a35c42ad222  app/src/test/java/com/example/aria/command/ParserHardeningTest.kt
+494a9ab7a18ac052  app/src/test/java/com/example/aria/command/ParserHardeningTest.kt
 e270b335d5615535  app/src/test/java/com/example/aria/command/RuleBasedCommandParserTest.kt
 b218d786bb776425  app/src/test/java/com/example/aria/ui/AssistantUiStateTest.kt
-c6a0926399983b03  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
+33ed5ca8de327ecc  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
 bae3b80e5cf0fa7e  app/src/test/java/com/example/aria/ui/AssistantViewModelTest.kt
 ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerManager.kt
 3b46d65b01bd9638  app/src/test/java/com/example/aria/voice/FakeTextToSpeechManager.kt

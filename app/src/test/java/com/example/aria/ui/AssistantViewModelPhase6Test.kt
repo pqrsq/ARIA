@@ -7,6 +7,7 @@ import com.example.aria.actions.FakeActionExecutor
 import com.example.aria.actions.SettingsActions
 import com.example.aria.command.AssistantCommand
 import com.example.aria.command.CommandParser
+import com.example.aria.command.RejectionReason
 import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
@@ -598,7 +599,15 @@ class AssistantViewModelPhase6Test {
 
         assertEquals(ActionMessages.VOLUME_OUT_OF_RANGE, vm.uiState.value.message)
         assertEquals(AssistantStatus.REJECTED, vm.uiState.value.status)
-        assertTrue("Nothing may be executed", executor.executed.isEmpty())
+        // Nothing may be *performed*: the only thing that reaches the executor is
+        // the refusal itself, which the real executor routes to the fallback
+        // handler rather than to a volume handler.
+        assertEquals(
+            listOf<AssistantCommand>(
+                AssistantCommand.Rejected(RejectionReason.VOLUME_OUT_OF_RANGE)
+            ),
+            executor.executed
+        )
     }
 
     @Test
