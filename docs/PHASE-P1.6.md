@@ -200,3 +200,33 @@ action handler, TTS, the manifest, Gradle files, dependencies, theme and layout.
 No new command, no persistence, no architecture change.
 
 **V1-completion (history persistence) has not been started.** P1.6 stops here.
+
+---
+
+## 9. Post-merge build fix: three assertions compared a state that cannot settle yet
+
+**Only `AssistantViewModelTextInputTest` failed (3 of 15); the pipeline was fine and
+all 362 other tests passed.** The failures were mine, and they shared one cause: a
+successful result is `SPEAKING` while its sentence is read aloud and only becomes
+`SUCCESS` when the engine reports the utterance finished. The tests asserted a
+*settled* status without letting it settle.
+
+| Test | What it asserted | Why it failed |
+|---|---|---|
+| `typed input works when the microphone permission is denied` | `SUCCESS` right after submit | the card is `SPEAKING`; `SUCCESS` only after `finishSpeaking()` |
+| `typed input is duplicate-suppressed … never left PROCESSING` | `settled.status == after.status` | the snapshot was taken while `SPEAKING`, so the comparison was `SPEAKING` vs `SPEAKING` for two different reasons — it could not fail meaningfully |
+| `a typed command produces the same command, result and status as speech` | `voiceState.status == textState.status` | same defect: both sides were `SPEAKING`, so the assertion was true by accident instead of by evidence |
+
+Fixes are test-only: call `tts.finishSpeaking()` before snapshotting or asserting, and
+additionally assert `SUCCESS` explicitly so the comparison cannot pass spuriously.
+
+**Why the line numbers in the log did not help:** the reported lines (85, 140, 248)
+were the `fun` declaration lines. kotlinx-coroutines-test rethrows the original
+failure from its `runTest` lambda boundary, so the stack always points at the test,
+not the assertion. The real cause had to be derived from the code — and the existing
+Phase 6 suite showed the idiom that was missing (`tts.finishSpeaking()` before any
+settled-status assertion, used in 4 places there).
+
+**Wider check:** every other test in the suite that asserts a settled status either
+calls `finishSpeaking()` first or asserts a state that is not speech-dependent
+(`REJECTED`, `ERROR`, `IDLE`, `PROCESSING`) — so no other test carries this defect.

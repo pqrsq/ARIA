@@ -103,7 +103,16 @@ class AssistantViewModelTextInputTest {
         assertEquals(voiceExecuted, executor.executed)
 
         // …and so is everything the user sees.
-        assertEquals(voiceState.status, textState.status)
+        //
+        // SETTLE FIRST: a successful result is SPEAKING while its sentence is read
+        // aloud, and only becomes SUCCESS when the engine reports the utterance
+        // finished. Comparing the raw statuses would compare "SPEAKING" with
+        // "SPEAKING" — true by accident, and silent about the real outcome.
+        tts.finishSpeaking()
+        val voiceSettled = byVoice.uiState.value.status
+        val textSettled = byText.uiState.value.status
+        assertEquals(voiceSettled, textSettled)
+        assertEquals(AssistantStatus.SUCCESS, textSettled)
         assertEquals(voiceState.commandType, textState.commandType)
         assertEquals(voiceState.commandLabel, textState.commandLabel)
         assertEquals(voiceState.handler, textState.handler)
@@ -142,7 +151,14 @@ class AssistantViewModelTextInputTest {
         nowMillis = 2_000L
         vm.onSubmitTextInput("turn the volume up")
         assertEquals(1, executor.executed.size)
+
+        // Settle the spoken reply before snapshotting. Without this the snapshot
+        // is SPEAKING, and the suppressed duplicate would "match" it by being
+        // SPEAKING for its own (never executed) reason — a comparison that cannot
+        // fail tells you nothing.
+        tts.finishSpeaking()
         val settled = vm.uiState.value
+        assertEquals(AssistantStatus.SUCCESS, settled.status)
 
         // The same command again, inside one second.
         nowMillis += 300L
@@ -253,8 +269,11 @@ class AssistantViewModelTextInputTest {
         vm.onSubmitTextInput("turn the volume down")
 
         assertEquals(listOf<AssistantCommand>(AssistantCommand.VolumeDown), executor.executed)
-        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
         assertEquals(InputSource.TEXT, vm.uiState.value.history.first().source)
+        // The result is being read aloud, so the status is SPEAKING; what matters
+        // here is that it SETTLES to SUCCESS without ever having been an ERROR.
+        tts.finishSpeaking()
+        assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
         assertFalse(vm.uiState.value.isAwaitingPermission)
         assertEquals(0, speech.startCount)
     }
