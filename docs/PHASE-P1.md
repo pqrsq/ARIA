@@ -146,3 +146,48 @@ song/destination entities without a comma; any new command, category, or
 architecture change (Registry, `NeedsClarification`, `AssistantPlan`).
 
 **Phase 7 / V1-completion / LLM work was not started.** P1 stops here.
+
+---
+
+## 8. Post-merge build follow-up: the `endsWithWord` resolution bug
+
+Two builds were needed before this phase compiled and passed.
+
+**Build 1 — `Unresolved reference 'endsWithWord'` at `TextNormalizer.kt:150`.**
+`stripTrailingFillers` called a word-boundary helper that existed only inside
+`RuleBasedCommandParser`'s **private companion object**. A companion member is
+class-scoped, so another file cannot see it, whatever the import. Reusing it there
+was simply wrong.
+
+**Build 2 — 119 tests failed, everything returning `Unknown("")`.**
+The fix applied to build 1 deleted the unresolved call instead of defining it. That
+call was the *condition* of the strip:
+
+```kotlin
+if (!matchable.endsWithWholeWord(filler)) continue   // keep this
+result = words.dropLast(fillerWordCount) ...
+```
+
+Without it the loop drops the last word of every phrase of two or more words, then
+repeats until nothing is left: `"hello there"` → `"hello"` → `""`. Every utterance
+became blank, so every test that asserts on a command failed — 119 of them, spread
+across the whole suite. Deleting the call made the compiler happy and the parser
+silently dead.
+
+**The fix (this follow-up)** is to *add* the missing helper at package level, next to
+`startsWithWord`, and keep the call. It is deliberately named
+`endsWithWholeWord`, **not** `endsWithWord`: the parser still has its own
+same-shaped companion helper for the `"… app"` suffix, and two identically-shaped
+extensions on `String` would leave call-site resolution to scope rules that this
+environment cannot compile-test.
+
+`ParserCoverageTest` now pins the failure directly:
+
+- `regression - the trailing strip never eats an ordinary last word` asserts the
+  normalised view is **unchanged** for `volume up`, `pause the music`, `hello there`
+  and a long sentence, and that those still resolve to commands.
+- `regression - only a real trailing courtesy phrase is dropped` asserts the strip
+  stays conditional in both directions — `please pause the music` and
+  `pleased to meet you` are untouched, while `please` and `thanks` collapse to `""`.
+
+Unit test count: **345 → 347**. Still not executed in the authoring sandbox.

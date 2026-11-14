@@ -147,6 +147,7 @@ object TextNormalizer {
             val matchable = toMatchable(result)
             for (filler in TRAILING_COURTESY) {
                 if (matchable == filler) return ""
+                if (!matchable.endsWithWholeWord(filler)) continue
 
                 val fillerWordCount = filler.split(WHITESPACE).size
                 val words = result.split(WHITESPACE).filter { it.isNotBlank() }
@@ -194,8 +195,28 @@ object TextNormalizer {
 /** True when this matchable phrase starts with [word] as a whole word. */
 internal fun String.startsWithWord(word: String): Boolean =
     this == word || this.startsWith("$word ")
-/** True when [word] is the last whole word of this matchable phrase (Phase P1.2). */
-internal fun String.endsWithWord(word: String): Boolean =
+
+/**
+ * True when [word] is the last whole word of this matchable phrase.
+ *
+ * WHY THIS HAS TO EXIST: it is the guard that makes the trailing-politeness strip
+ * conditional. [TextNormalizer.stripTrailingFillers] drops the last word whenever
+ * this returns true, so if the condition is ever weakened or the check removed,
+ * *every* utterance loses its last word ("volume up" → "volume", then "" → Unknown)
+ * and the whole parser appears dead. Keep the guard and keep this test.
+ *
+ * It lives at package level, next to [startsWithWord], because
+ * `RuleBasedCommandParser` has a *private companion* helper for "… app" that is not
+ * visible from this file. The name is deliberately DIFFERENT from that helper
+ * (`endsWithWord`): two identically-shaped extensions on String would make every
+ * call site's resolution depend on scope rules, and this code cannot be compiled
+ * in the authoring environment to prove which one wins.
+ *
+ * The `this == word` arm matters on its own: it is what collapses a
+ * politeness-only utterance ("please", "thanks") to the empty string, which is the
+ * blank-input contract.
+ */
+internal fun String.endsWithWholeWord(word: String): Boolean =
     this == word || this.endsWith(" $word")
 
 /**

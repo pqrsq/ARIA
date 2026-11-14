@@ -44,7 +44,7 @@ c5eb9742086dad8a  app/src/main/java/com/example/aria/command/AssistantCommand.kt
 ad627ac81a04093f  app/src/main/java/com/example/aria/command/AudioStream.kt
 35c2ac2568fa6acc  app/src/main/java/com/example/aria/command/CommandParser.kt
 c41284bc7df26f0e  app/src/main/java/com/example/aria/command/RuleBasedCommandParser.kt
-03eafdded5fbc446  app/src/main/java/com/example/aria/command/TextNormalizer.kt
+f95a0392e45242d9  app/src/main/java/com/example/aria/command/TextNormalizer.kt
 433d91a30433c909  app/src/main/java/com/example/aria/permissions/PermissionManager.kt
 2c46a7f240633657  app/src/main/java/com/example/aria/permissions/PolicyAccessChecker.kt
 7587c19163a49acb  app/src/main/java/com/example/aria/ui/AssistantScreen.kt
@@ -87,7 +87,7 @@ be7c070321ef2e97  app/src/test/java/com/example/aria/actions/MediaActionHandlerT
 472916c627e907ba  app/src/test/java/com/example/aria/actions/VolumeActionHandlerTest.kt
 87293fb03f8fdf7f  app/src/test/java/com/example/aria/actions/VolumeHardeningTest.kt
 400341faa91c6c86  app/src/test/java/com/example/aria/command/AssistantCommandTest.kt
-423e0c500e3a9b20  app/src/test/java/com/example/aria/command/ParserCoverageTest.kt
+4bd136f55643b31a  app/src/test/java/com/example/aria/command/ParserCoverageTest.kt
 494a9ab7a18ac052  app/src/test/java/com/example/aria/command/ParserHardeningTest.kt
 e270b335d5615535  app/src/test/java/com/example/aria/command/RuleBasedCommandParserTest.kt
 b218d786bb776425  app/src/test/java/com/example/aria/ui/AssistantUiStateTest.kt
@@ -100,7 +100,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 8cde6876af2ed692  artifacts/aria-phase1-androidTest.apk
 0981db0bdc16ae74  artifacts/aria-phase1-debug.apk
 16e0e9395413c907  build.gradle.kts
-28f0d7b664220b42  docs/PHASE-P1.md
+60e5c3750c5616b6  docs/PHASE-P1.md
 5131030b2c713563  docs/PHASE1.md
 089f40b35ccb1460  docs/PHASE2.md
 086f367110e3da9f  docs/PHASE3.md
