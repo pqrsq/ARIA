@@ -3,8 +3,13 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="." />
+        <!-- PHASE 12: transcripts never leave the device. -->
+        <exclude domain="file" path="history.json" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="." />
+        <!-- PHASE 12: excluded from transfer too — a new phone is a new start,
+             and the user can still see what is on the old one. -->
+        <exclude domain="file" path="history.json" />
     </device-transfer>
 </data-extraction-rules>

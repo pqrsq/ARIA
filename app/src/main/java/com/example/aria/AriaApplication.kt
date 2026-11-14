@@ -5,6 +5,8 @@ import com.example.aria.actions.ActionExecutor
 import com.example.aria.actions.createAndroidActionExecutor
 import com.example.aria.command.CommandParser
 import com.example.aria.command.RuleBasedCommandParser
+import com.example.aria.history.FileHistoryStore
+import com.example.aria.history.HistoryStore
 import com.example.aria.permissions.DndAccessChecker
 import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.AndroidSpeechRecognizerManager
@@ -74,6 +76,20 @@ class AriaApplication : Application() {
     private val actionExecutorLazy = lazy { createAndroidActionExecutor(applicationContext) }
 
     val actionExecutor: ActionExecutor by actionExecutorLazy
+
+    /**
+     * PHASE 12 — the persisted command history.
+     *
+     * WHY OWNED HERE: it is process-scoped (one file, one writer) and needs the
+     * application context to find `filesDir`. Building it lazily means a cold
+     * start that never finishes an interaction does not touch the disk.
+     *
+     * Exposed as the [HistoryStore] interface so the factory wires a contract and
+     * a test can substitute a fake.
+     */
+    val historyStore: HistoryStore by lazy {
+        FileHistoryStore(directory = filesDir)
+    }
 
     /**
      * Releases both engines for a clean shutdown.

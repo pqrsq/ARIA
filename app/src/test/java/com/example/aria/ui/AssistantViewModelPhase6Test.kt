@@ -12,6 +12,7 @@ import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
+import com.example.aria.history.FakeHistoryStore
 import com.example.aria.voice.FakeTextToSpeechManager
 import com.example.aria.voice.SpeakPriority
 import com.example.aria.voice.TtsEvent
@@ -57,6 +58,7 @@ class AssistantViewModelPhase6Test {
     private val speech = FakeSpeechRecognizerManager()
     private val tts = FakeTextToSpeechManager()
     private val executor = FakeActionExecutor()
+
     private val parser: CommandParser = RuleBasedCommandParser()
 
     /** Controllable wall clock for the duplicate window. */
@@ -83,7 +85,8 @@ class AssistantViewModelPhase6Test {
             computeDispatcher = dispatcher,
             ioDispatcher = dispatcher,
             clockMillis = { nowMillis },
-            policyAccessChecker = PolicyAccessChecker { dndGranted }
+            policyAccessChecker = PolicyAccessChecker { dndGranted },
+            historyStore = FakeHistoryStore()
         )
     }
 
@@ -527,7 +530,8 @@ class AssistantViewModelPhase6Test {
             computeDispatcher = dispatcher,
             ioDispatcher = dispatcher,
             clockMillis = { nowMillis },
-            policyAccessChecker = PolicyAccessChecker { granted }
+            policyAccessChecker = PolicyAccessChecker { granted },
+            historyStore = FakeHistoryStore()
         )
         vm.say("silent mode")
         assertEquals(

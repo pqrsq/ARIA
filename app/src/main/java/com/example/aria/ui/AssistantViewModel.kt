@@ -9,6 +9,8 @@ import com.example.aria.actions.ExecutionResult
 import com.example.aria.actions.HandlerNames
 import com.example.aria.command.AssistantCommand
 import com.example.aria.command.CommandParser
+import com.example.aria.history.HistoryStore
+import com.example.aria.history.capHistory
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.SpeechError
@@ -25,6 +27,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,7 +98,17 @@ class AssistantViewModel(
      */
     private val policyAccessChecker: PolicyAccessChecker =
         PolicyAccessChecker { false },
-    private val clockMillis: () -> Long = { System.currentTimeMillis() }
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    /**
+     * PHASE 12 — where the history rows live between sessions.
+     *
+     * REQUIRED, DELIBERATELY: no default. A default could only be a no-op store,
+     * which would make "history is persisted" quietly false in production while
+     * every test still passed with a fake. Because it has no default it is also
+     * the LAST parameter, so every existing positional construction keeps working
+     * — except that it must now actually be supplied, which is the point.
+     */
+    private val historyStore: HistoryStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AssistantUiState(
@@ -154,12 +168,53 @@ class AssistantViewModel(
      */
     private var spokenTurns = 0
 
+    /**
+     * PHASE 12 — serialises every touch of [historyStore].
+     *
+     * WHY A MUTEX AND NOT JUST "LAUNCH IT": the initial load is asynchronous, so a
+     * command typed the instant the app opens can complete *before* the load
+     * returns. Without a lock that append would write a one-row list over the
+     * stored history — silently destroying it. Every read-modify-write of the
+     * store therefore runs inside this mutex, in one coroutine at a time, so the
+     * load always lands first and no write can interleave with it.
+     */
+    private val historyMutex = Mutex()
+
+    /**
+     * PHASE 12 — completes when the initial load has been applied to the state.
+     *
+     * Kept so a clear during startup can wait for the load instead of racing it:
+     * without this, "clear" could finish first and then be overwritten by the
+     * load's records reappearing.
+     */
+    private var historyLoadJob: Job? = null
+
     init {
         viewModelScope.launch {
             speechRecognizerManager.events.collect(::onSpeechEvent)
         }
         viewModelScope.launch {
             textToSpeechManager.events.collect(::onTtsEvent)
+        }
+        // PHASE 12: restore before the user can do anything meaningful. The rows
+        // are PREPENDED to whatever is already in memory (usually nothing), so a
+        // command that somehow completes first is not thrown away.
+        historyLoadJob = viewModelScope.launch {
+            // A store that throws must not take the app with it: history is a
+            // convenience, and the ViewModel's contract is that a broken file
+            // yields an empty history. [HistoryStore] documents that it does not
+            // throw, so this is second-line defence for a buggy implementation —
+            // and it is what makes "load failure → empty history, no crash" true
+            // rather than merely intended.
+            val stored = guardHistory { historyStore.load() } ?: emptyList()
+            if (stored.isEmpty()) return@launch
+            // Continue numbering after the restored rows, so a new record can
+            // never collide with a stored id (the ids are only used for list
+            // identity in Compose).
+            nextId.updateAndGet { current -> maxOf(current, stored.maxOf { it.id } + 1) }
+            _uiState.update { state ->
+                state.copy(history = capHistory(state.history + stored))
+            }
         }
     }
 
@@ -189,6 +244,7 @@ class AssistantViewModel(
                     history = it.withFailureRow(SpeechError.SERVICE_UNAVAILABLE)
                 )
             }
+            persistHistory()
             return
         }
 
@@ -464,7 +520,7 @@ class AssistantViewModel(
                 commandLabel = command.displayName,
                 handler = record.handler,
                 message = record.message,
-                history = listOf(record) + it.history,
+                history = capHistory(listOf(record) + it.history),
                 // PHASE 6: a missing permission is carried to the card as a
                 // *hint*, never acted on: ARIA does not open settings by itself.
                 pendingSettingsAction = (result as? ExecutionResult.RequiresPermission)
@@ -481,6 +537,14 @@ class AssistantViewModel(
         // suppressed duplicate can put the user back on this settled result
         // instead of the LISTENING/PROCESSING state its own recognition caused.
         rememberSettledState(_uiState.value)
+
+        // PHASE 12: persist AFTER the state update, and persist the state's own
+        // list rather than "record + old list" — there is then exactly one source
+        // of truth for what is on disk, and the cap is applied in one place.
+        //
+        // D1 is untouched by construction: a suppressed duplicate returns before
+        // publish(), so it can never create a second row here.
+        persistHistory()
 
         // The result sentence is what gets spoken: the user asked for something,
         // so being told what actually happened is the useful reply. The rotating
@@ -882,6 +946,10 @@ class AssistantViewModel(
                 isAwaitingPermission = false
             )
         }
+        // PHASE 12: a failure row is part of the history, so it survives a
+        // restart like any other. Requirement 6 forbids changing what the
+        // in-memory history contains; persisting exactly that is the point.
+        persistHistory()
     }
 
     /**
@@ -939,6 +1007,68 @@ class AssistantViewModel(
         // spoken just after a clear would resurrect the card that was cleared.
         settledState = null
         _uiState.update { it.copy(history = emptyList(), isAwaitingPermission = false) }
+
+        // PHASE 12: the store is cleared too, inside the same mutex the load and
+        // every save use. The load job is joined FIRST: a clear that ran before
+        // the initial load returned would otherwise be undone by the load
+        // prepending the old rows back into the state.
+        viewModelScope.launch {
+            // Wait for the initial load, then empty the state AGAIN. Clearing only
+            // before the join is not enough: the load's own step prepends the
+            // stored rows into the state, so a clear that ran while the load was
+            // in flight would be undone by it moments later — the rows would
+            // disappear from the file and reappear on screen. Emptying after the
+            // join makes the outcome independent of the race.
+            historyLoadJob?.join()
+            _uiState.update { it.copy(history = emptyList()) }
+            guardHistory { historyStore.clear() }
+        }
+    }
+
+    /**
+     * PHASE 12 — writes the current history to [historyStore].
+     *
+     * WHAT IS WRITTEN: the state's own list, capped. Not "the new row plus a
+     * stale copy" — that duplication is how a store drifts from the UI.
+     *
+     * WHY IT DOES NOT AWAIT THE LOAD: it takes the same mutex, so if the load is
+     * still running the save simply queues behind it, and because the load
+     * PREPENDS the stored rows while this writes the resulting list, the merge is
+     * preserved whichever one wins.
+     *
+     * WHY IT IS FIRE-AND-FORGET: the caller is inside the command pipeline, and a
+     * slow disk must not delay the result card or the spoken reply. [HistoryStore]
+     * does not throw, and the in-memory list stays authoritative for the session.
+     */
+    /**
+     * PHASE 12 — runs one store call, swallowing anything it throws.
+     *
+     * WHY THIS IS NOT PARANOIA: [HistoryStore]'s own contract says it does not
+     * throw, but this is the boundary between the app and the filesystem. A
+     * read-only volume, a full disk or a bug in an implementation must cost the
+     * user their history, never their command. [CancellationException] is rethrown
+     * so coroutine cancellation keeps working — swallowing it would leave work
+     * running after its scope died.
+     *
+     * The mutex is taken HERE rather than at each call site, so no store access
+     * can escape the serialisation that keeps the initial load and an append from
+     * interleaving.
+     */
+    private suspend fun <T> guardHistory(block: suspend () -> T): T? =
+        try {
+            historyMutex.withLock { block() }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            // Deliberately broad: a storage failure of ANY kind is non-fatal here.
+            null
+        }
+
+    private fun persistHistory() {
+        val snapshot = _uiState.value.history
+        viewModelScope.launch {
+            guardHistory { historyStore.save(snapshot) }
+        }
     }
 
     /**

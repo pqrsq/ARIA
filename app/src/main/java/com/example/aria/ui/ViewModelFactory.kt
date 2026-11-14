@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import com.example.aria.AriaApplication
 import com.example.aria.actions.ActionExecutor
 import com.example.aria.command.CommandParser
+import com.example.aria.history.HistoryStore
 import com.example.aria.permissions.AndroidPermissionChecker
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
@@ -17,7 +18,7 @@ import com.example.aria.voice.TextToSpeechManager
 /**
  * Dependency wiring for the assistant screen — still no DI framework.
  *
- * WHY A FACTORY (and not Hilt/Koin): the graph is five collaborators (speech
+ * WHY A FACTORY (and not Hilt/Koin): the graph is six collaborators (speech
  * manager, microphone checker, speech engine, command parser, action executor).
  * Still small enough that a factory keeps the build fast and the wiring visible;
  * if it grows further, swapping in a container is a local change because screens
@@ -35,7 +36,12 @@ fun stateViewModelFactory(): ViewModelProvider.Factory = viewModelFactory {
             textToSpeechManager = application.textToSpeechManager,
             commandParser = application.commandParser,
             actionExecutor = application.actionExecutor,
-            policyAccessChecker = application.policyAccessChecker
+            policyAccessChecker = application.policyAccessChecker,
+            // PHASE 12: the real file-backed store. Not defaulted in the
+            // ViewModel on purpose — production must wire this explicitly, or a
+            // no-op default would make persistence quietly false everywhere while
+            // the tests stayed green with a fake.
+            historyStore = application.historyStore
         )
     }
 }
@@ -50,7 +56,12 @@ class AssistantViewModelFactory(
     private val textToSpeechManager: TextToSpeechManager,
     private val commandParser: CommandParser,
     private val actionExecutor: ActionExecutor,
-    private val policyAccessChecker: PolicyAccessChecker = PolicyAccessChecker { false }
+    private val policyAccessChecker: PolicyAccessChecker = PolicyAccessChecker { false },
+    /**
+     * PHASE 12 — required, so there is no production default that could silently
+     * no-op. Tests pass an in-memory fake.
+     */
+    private val historyStore: HistoryStore
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -63,7 +74,8 @@ class AssistantViewModelFactory(
             textToSpeechManager = textToSpeechManager,
             commandParser = commandParser,
             actionExecutor = actionExecutor,
-            policyAccessChecker = policyAccessChecker
+            policyAccessChecker = policyAccessChecker,
+            historyStore = historyStore
         ) as T
     }
 }
