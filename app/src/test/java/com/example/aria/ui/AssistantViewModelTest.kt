@@ -9,6 +9,7 @@ import com.example.aria.command.CommandParser
 import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
+import com.example.aria.history.FakeHistoryStore
 import com.example.aria.voice.FakeTextToSpeechManager
 import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
@@ -49,6 +50,7 @@ class AssistantViewModelTest {
     /** PHASE 6: an executor whose answer each test decides. */
     private val executor = FakeActionExecutor()
 
+
     private fun viewModel(
         hasPermission: Boolean = true,
         recognitionAvailable: Boolean = true,
@@ -66,7 +68,11 @@ class AssistantViewModelTest {
             // assert synchronously right after an event, so both hops are pointed
             // at the unconfined test dispatcher and complete inline.
             computeDispatcher = mainDispatcherRule.testDispatcher,
-            ioDispatcher = mainDispatcherRule.testDispatcher
+            ioDispatcher = mainDispatcherRule.testDispatcher,
+            // PHASE 12: persistence is not what this file (Phases 1–5) is about,
+            // but the store is required. A fake keeps these tests about the
+            // speech/state contract; persistence has its own suite.
+            historyStore = FakeHistoryStore()
         )
     }
 

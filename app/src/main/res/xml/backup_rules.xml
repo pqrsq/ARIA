@@ -6,4 +6,12 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="." />
+    <!--
+        PHASE 12 — command history is NOT backed up.
+        The file holds the user's own transcripts: what they said to the phone.
+        That is the most private data the app produces, so it stays on the
+        device. Auto-backup would copy it to the user's cloud storage without
+        them asking, which is not a decision a debug log should make for them.
+    -->
+    <exclude domain="file" path="history.json" />
 </full-backup-content>

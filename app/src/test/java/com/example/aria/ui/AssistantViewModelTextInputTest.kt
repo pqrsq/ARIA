@@ -11,6 +11,7 @@ import com.example.aria.command.RuleBasedCommandParser
 import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
+import com.example.aria.history.FakeHistoryStore
 import com.example.aria.voice.FakeTextToSpeechManager
 import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
@@ -48,6 +49,7 @@ class AssistantViewModelTextInputTest {
     private val speech = FakeSpeechRecognizerManager()
     private val tts = FakeTextToSpeechManager()
     private val executor = FakeActionExecutor()
+
     private val parser: CommandParser = RuleBasedCommandParser()
 
     /** Controllable wall clock for the one-second duplicate window. */
@@ -69,7 +71,8 @@ class AssistantViewModelTextInputTest {
             computeDispatcher = dispatcher,
             ioDispatcher = dispatcher,
             clockMillis = { nowMillis },
-            policyAccessChecker = PolicyAccessChecker { false }
+            policyAccessChecker = PolicyAccessChecker { false },
+            historyStore = FakeHistoryStore()
         )
     }
 

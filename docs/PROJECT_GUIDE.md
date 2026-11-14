@@ -18,7 +18,8 @@ coding agent. Keep it updated at the end of every phase.
 | **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** |
 | **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** |
 | **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ **done** |
-| **P1.6** | Debug text input — a second input into the existing pipeline | ✅ **done** (this phase) |
+| **P1.6** | Debug text input — a second input into the existing pipeline | ✅ **done** |
+| **12** | History persistence — JSON file, capped, excluded from backup | ✅ **done** (this phase) |
 | 7 | Volume actions | 🔀 folded into 6 |
 | 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
 | 9 | Maps actions | 🔀 folded into 6 |
@@ -103,6 +104,18 @@ device.
 - `InputSource { VOICE, TEXT }` on the UI state and on every history row.
 - 362 unit tests (347 before) and 14 instrumented (9 before). ⚠️ **Not compiled** —
   no JDK/SDK in the sandbox; see `docs/PHASE-P1.6.md` §7 for the typed device script.
+**Phase 12 status (V1 completion, step 1 of 4):**
+- History survives a restart: `history/HistoryStore` (pure) +
+  `history/FileHistoryStore` (JSON in `filesDir`, atomic write, never throws).
+- Capped at 200 in the pure layer (`capHistory`), enforced in the ViewModel's state
+  and again in the adapter.
+- `history.json` is excluded from auto-backup AND device transfer — transcripts are
+  the most private data the app makes.
+- The store is a REQUIRED constructor parameter with no default, so production
+  cannot silently fall back to a no-op.
+- 385 unit tests (362 before) and 28 instrumented (14 before). ⚠️ **Not compiled** —
+  no JDK/SDK in the sandbox.
+
 - `docs/PHASE-P1.md` records the before/after, the entity-vs-matching-view decision
   that keeps `"play Please Please Please"` intact, and the phone script.
 

@@ -1,0 +1,215 @@
+# PHASE 12 — history persistence (V1 completion, step 1 of 4)
+
+History was in-memory only and died with the process. This phase makes it survive a
+restart, and nothing else.
+
+> ⚠️ **Not executed.** No JDK, no Android SDK in the authoring sandbox, so nothing
+> here has been compiled or run. §6 has the commands. The wiring was verified by
+> reading the code and by replaying the load/save/clear state machine, including the
+> two races below (all assertions reproduced in §5).
+
+---
+
+## 1. Decision, restated
+
+Plain JSON in app-private storage, behind a pure `suspend` interface. **No Room, no
+DataStore, no new dependency, no KSP.** The history is one flat, capped, always
+read-and-written-whole list of ~200 small records; Room's annotation processing
+would be disproportionate. Room stays the V2 answer if history ever needs queries,
+filters or migrations.
+
+---
+
+## 2. Step 0 — what the code said
+
+| Checked | Finding | Consequence |
+|---|---|---|
+| `CommandRecord` fields | `id, timestampMillis, rawSpeech, normalizedText, commandType, handler, status, message, source` | **`timestampMillis` already exists** (absolute epoch millis) — so no field had to be added, and ordering across restarts is free. `displayName`/UI format untouched. |
+| Where rows are appended | `publish()` (`history = listOf(record) + it.history`) **and** two failure paths via `withFailureRow` | All three must persist, or a restart silently loses failure rows |
+| Clear action | `clearHistory()` — state only | Needs the store cleared too |
+| Dedupe path | `isDuplicate` → early `return@launch` **before** `publish()` | D1 is preserved for free: nothing reaches the persist call |
+| `HistoryList.kt` | renders `records` in list order, newest first | The store must return newest-first; no UI change needed |
+| `ViewModelFactory` / `AriaApplication` | plain manual wiring, no DI framework | Add one lazy store on the Application, pass it through both factories |
+| Both backup XMLs | only `sharedpref` excluded | `history.json` in `filesDir` would have been **backed up to the cloud** — the phase's privacy requirement was a real gap, not a formality |
+
+No assumption in the brief was wrong. One thing the brief implied but the code
+already had: the absolute timestamp.
+
+---
+
+## 3. What was built
+
+### `history/HistoryStore.kt` — the pure contract
+
+```kotlin
+interface HistoryStore {
+    suspend fun load(): List<CommandRecord>
+    suspend fun save(records: List<CommandRecord>)
+    suspend fun clear()
+}
+```
+
+Plus the two pure pieces that make the cap testable without a device:
+
+- `const val MAX_HISTORY_RECORDS = 200`
+- `fun capHistory(records, max = MAX_HISTORY_RECORDS)` — keeps the newest `max`,
+  order-preserving, **idempotent** (both the ViewModel and the adapter apply it),
+  and `require(max > 0)` so a cap of zero can never silently erase the history.
+
+The interface documents that `load` never throws and that `save` receives the
+**complete** list — there is no append/merge API for a caller to get wrong.
+
+### `history/FileHistoryStore.kt` — the only Android code
+
+- JSON array via `org.json`, written to `filesDir/history.json`.
+- **Atomic write**: `history.json.tmp` then `renameTo`, which is atomic within a
+  directory, so a process death mid-save leaves the old complete file or the new
+  complete file, never a half-written one. A failed rename deletes the temp file so
+  a later load cannot pick it up.
+- **Never throws**: missing file, empty file, malformed JSON, wrong root type, I/O
+  error → empty list (and a `Log.w` so the loss can be explained). One undecodable
+  row is dropped without discarding the other 199.
+- Unknown enum names fall back to the field defaults instead of throwing, so a file
+  from a newer build cannot crash an older one.
+- `load` sorts newest-first by `timestampMillis`, so the UI never depends on the
+  writer having been right.
+- `clear` deletes the temp file too, so an interrupted save cannot resurrect rows.
+
+**Why `org.json` is contained here**: it is an Android stub in JVM unit tests, so
+anything touching it cannot run on the JVM. That is precisely why the store is an
+interface: the JVM suite tests a fake, and this adapter is tested on a device.
+
+### ViewModel wiring
+
+- **The store is a required constructor parameter with no default.** A default could
+  only be a no-op, which would make "history is persisted" quietly false in
+  production while every test still passed against a fake.
+- `init` launches the load and prepends the stored rows to whatever is in memory;
+  `nextId` is advanced past the restored ids so ids never collide.
+- `persistHistory()` is called after `publish()` and from both failure paths, and
+  saves **the state's own list** (capped) rather than `record + old list` — one
+  source of truth, one place applying the cap.
+- Every store call goes through `guardHistory {}`, which takes the `Mutex` and
+  swallows any `Exception` (rethrowing `CancellationException`). Storage is a
+  convenience: a read-only volume costs the user their history, never their command.
+
+### Privacy
+
+`history.json` is excluded from `<full-backup-content>` (both domains' rules file)
+and from **both** `<cloud-backup>` and `<device-transfer>` in
+`data_extraction_rules.xml`. Transcripts are the most private thing the app
+produces; auto-backup must not upload them without the user asking.
+
+---
+
+## 4. The two races, and why they needed explicit handling
+
+**(a) An append during the initial load.** The load is asynchronous, so a command
+typed the instant the app opens can finish before it returns — and would then write a
+one-row list over the stored history. Every store access therefore takes one `Mutex`,
+so the load lands first and no write interleaves with it.
+
+**(b) Clear while the load is in flight.** Joining the load job is *not* enough: the
+load's own final step prepends the stored rows back into the state, so a clear that
+ran during the load would be undone moments later — rows gone from the file, back on
+the screen. `clearHistory()` therefore joins the load and then empties the state
+**again**, making the outcome independent of the race. This was found by replaying the
+state machine, not by reading the code (§5).
+
+---
+
+## 5. Verification performed here (no compiler)
+
+The load/save/clear state machine was replayed against a fake store, including both
+races. Every assertion below reproduced:
+
+| Behaviour | Result |
+|---|---|
+| init loads stored rows, order preserved | ✅ |
+| `load` called exactly once on init | ✅ |
+| one command → one row in state **and** one save, persisted == state row | ✅ |
+| duplicate-suppressed repeat → no new row, **no new save at all** | ✅ |
+| 201st record → 200 in state and store, newest on top, oldest dropped | ✅ |
+| load failure → empty history, no crash, next command still works | ✅ |
+| save failure → the command result is unaffected | ✅ |
+| clear → state and store both empty | ✅ |
+| **clear before the load finishes → nothing resurrected** | ✅ after the fix in §4b |
+
+That replay caught one real defect (4b) that reading the code had missed.
+
+---
+
+## 6. Build and tests
+
+```bash
+./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
+```
+
+**Not executed here.** Expected: **385** JVM unit tests (362 + 15 + 8) and **28**
+instrumented (14 + 14).
+
+### JVM unit tests added
+
+`AssistantViewModelHistoryTest` (15) — every bullet in the brief's test list:
+init load and order · one row per completed command · D1 persists nothing ·
+the cap in state and store · load failure · save failure · clear · the race in
+§4b · a typed command keeps `TEXT` · `Rejected` persists with its displayed
+status · `Unknown` persists · a speech failure row persists.
+
+`HistoryCapTest` (8) — the pure cap: shorter than the cap (same instance), exactly
+the cap, one over, far over, empty, idempotent, custom cap, and a non-positive cap
+rejected.
+
+`FakeHistoryStore` — records `loadCount`/`clearCount`/`saves`, can fail on load or
+save, and has a `loadGate` so a test can suspend the load and prove the race.
+
+### Instrumented tests added
+
+`HistoryStoreInstrumentedTest` (14) — the adapter, which cannot run on the JVM:
+missing file · JSON round-trip including enums and the `source` marker · newest-first
+ordering · corrupt file · truncated file · empty file · one undecodable row not
+discarding the rest · unknown enum names falling back · cap truncation · replace
+rather than append · clear idempotent · **no leftover `.tmp`** · the file name pinned
+to `history.json` (so the backup exclusion cannot silently stop matching) · nested
+directory creation.
+
+### What the tests do not prove
+
+- **Process death** in the literal sense: the instrumentation process stays alive.
+  The mechanism is proven (a second `FileHistoryStore` over the same directory reads
+  back what the first wrote, with nothing shared in memory), and the manual script
+  below is the real check.
+- **Rotation**: no state is held in the composable or the Activity, so rotation only
+  exercises `ViewModel` retention — which the script checks rather than a test
+  pretending to.
+
+---
+
+## 7. Device test script (typed input, no microphone)
+
+1. Enable debug mode; type **`turn up the volume`**, **`find my phone`**,
+   **`volume 120 please`**. Three rows appear: `VOLUME_UP · TEXT` (OK),
+   `UNKNOWN · TEXT` (OK), `VOLUME_120… · TEXT` (**N/A**, the rejection).
+2. **Force-stop** (App info → Force stop — swiping from recents may not kill the
+   process on One UI), then reopen. All three rows are still there, in the same
+   order, with the same status and the same `· TEXT` marker.
+3. **Rotate** the device: history intact.
+4. Clear history → **force-stop** → reopen: still empty.
+5. Optional privacy check: `adb shell run-as com.example.aria ls files/` shows
+   `history.json`; `adb shell dumpsys backup` (or a backup to another device)
+   must not include it.
+6. The 200 cap is covered by unit tests — no need to type 201 commands.
+
+---
+
+## 8. Scope confirmation
+
+**New**: `history/HistoryStore.kt`, `history/FileHistoryStore.kt`.
+**Touched**: `AssistantViewModel.kt`, `ViewModelFactory.kt`, `AriaApplication.kt`,
+`backup_rules.xml`, `data_extraction_rules.xml`, three existing test files (each
+constructs a ViewModel, so each now passes a fake store).
+**Untouched**: parser, normalizer, handlers, `ExecutionResult`, TTS, UI layout,
+command/history semantics, Gradle/AGP/Kotlin, permissions. No new dependency.
+
+**Regression, polish and release work have not been started.** This is step 1 of 4;
+the phase stops here.
