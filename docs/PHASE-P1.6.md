@@ -260,3 +260,59 @@ Audited the rest of the file for the same shape — a shared fake compared to it
 across runs. The remaining comparisons (`tts.spoken`, `executor.executed`,
 `tts.spoken.size`) all occur in single-run, single-ViewModel tests, so this was the
 only instance.
+
+---
+
+## 11. Hotfix: instrumented Compose tests had no hosted activity
+
+**23 of 28 instrumented tests passed; 5 failed** with
+
+```
+java.lang.IllegalStateException: No compose hierarchies found in the app.
+```
+
+on `AssistantScreenTest` (2) and `DebugTextInputTest` (3). `HistoryStoreInstrumentedTest`
+(14) passed because it does not use Compose at all.
+
+### Why the obvious explanation was wrong
+
+`StatusCardTest` uses the identical `@get:Rule val composeRule = createComposeRule()`
+and passed all 7 tests, so `createComposeRule()` was not simply broken on the device.
+The difference had to be per-test.
+
+### What the failures actually were
+
+`createComposeRule()` launches a bare `ComponentActivity` from `ui-test-manifest` at
+rule start and shares one instance per process; the semantics tree is only resolvable
+while that activity is resumed. A test whose first query is an **absence** assertion
+does not fail under this condition — `assertDoesNotExist()` and "there is no
+hierarchy" look the same — so `debugOff_hidesTheFieldEntirely` went green
+*vacuously*. The tests that failed were the ones that positively asserted a node's
+presence or interacted with it.
+
+That vacuity is the reason to fix the harness rather than the assertions.
+
+### Fix (test-only, no app code)
+
+1. All three Compose test classes now use
+   `createAndroidComposeRule<ComponentActivity>()`, which owns its activity's
+   lifecycle per test instead of relying on the shared test-manifest activity.
+2. `DebugTextInputTest` gained a non-vacuity guard:
+   `composeRule.onRoot().assertExists()` runs **before** the absence assertions, so
+   "the field is absent" now means "absent from a real tree".
+
+### Not executed here
+
+No JDK, Android SDK, `adb` or device in the authoring sandbox, so the fix is
+unverified by me. Run:
+
+```powershell
+.\gradlew :app:connectedDebugAndroidTest
+```
+
+`--tests` is **not** a valid option for this task (it is a JVM `Test` option); to run
+one class:
+
+```powershell
+.\gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=com.example.aria.DebugTextInputTest"
+```
