@@ -13,6 +13,8 @@ import com.example.aria.permissions.MicrophonePermissionChecker
 import com.example.aria.permissions.PolicyAccessChecker
 import com.example.aria.voice.FakeSpeechRecognizerManager
 import com.example.aria.voice.FakeTextToSpeechManager
+import com.example.aria.voice.SpeakPriority
+import com.example.aria.voice.TtsEvent
 import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
