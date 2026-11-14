@@ -16,7 +16,8 @@ coding agent. Keep it updated at the end of every phase.
 | **4** | `AssistantCommand` model | ✅ **done** |
 | **5** | Rule-based parser + unit tests | ✅ **done** |
 | **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** |
-| **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** (this phase) |
+| **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** |
+| **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ **done** (this phase) |
 | 7 | Volume actions | 🔀 folded into 6 |
 | 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
 | 9 | Maps actions | 🔀 folded into 6 |
@@ -82,6 +83,17 @@ device.
   `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
 - `docs/PHASE6.5.md` holds the before/after table per defect, the decisions, the
   limitations and the phone script. Phase 7 was **not** started.
+
+**Phase P1 status — read this before trusting the build:**
+- Parser-only: `RuleBasedCommandParser.kt` and `TextNormalizer.kt` plus one new
+  test file. No new commands, no handler/ViewModel/UI/manifest/Gradle change, and
+  the rule chain still runs in the Phase 5 order.
+- 345 unit tests (313 before). ⚠️ **Nothing in P1 has been compiled** — no JDK or
+  Android SDK in the sandbox.
+- Three sub-items in the brief were already correct (`volume up`, `turn my phone
+  silent`, `go back`) and were left alone; they now have guard tests instead.
+- `docs/PHASE-P1.md` records the before/after, the entity-vs-matching-view decision
+  that keeps `"play Please Please Please"` intact, and the phone script.
 
 ---
 
