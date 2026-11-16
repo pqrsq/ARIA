@@ -8,116 +8,59 @@ coding agent. Keep it updated at the end of every phase.
 
 ## 1. Where the project stands
 
+> **STATUS LIVES IN `PROJECT_STATUS.md`.** This file is the architecture and
+> decisions record; it is not the tracker. The table below used to be both, and it
+> drifted: Phase 12 was listed as both ✅ done and ⬜ not started in the same table,
+> and phases that actually happened (6.5, P1, P1.6, Regression, R1) were missing
+> entirely. Anything below that reads as a status claim is a summary;
+> `PROJECT_STATUS.md` wins in a conflict.
+
 | Phase | Scope | State |
 |---|---|---|
-| **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ **done** |
-| **2** | Speech-to-text (microphone → `String`) | ✅ **done** |
-| **3** | Text-to-speech (reply out loud) | ✅ **done** |
-| **4** | `AssistantCommand` model | ✅ **done** |
-| **5** | Rule-based parser + unit tests | ✅ **done** |
-| **6** | Command execution layer (volume, sound modes, media, maps, apps, settings) | ✅ **done** |
-| **6.5** | Hardening pass on the action layer (audit defects D1–D11, A1–A3) | ✅ **done** |
-| **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ **done** |
-| **P1.6** | Debug text input — a second input into the existing pipeline | ✅ **done** |
-| **12** | History persistence — JSON file, capped, excluded from backup | ✅ **done** (this phase) |
-| 7 | Volume actions | 🔀 folded into 6 |
-| 8 | Music actions | 🔀 folded into 6 (app hand-off + transport keys) |
-| 9 | Maps actions | 🔀 folded into 6 |
-| 10 | App launching | 🔀 folded into 6 |
-| 11 | Sound modes (+ permissions) | 🔀 folded into 6 |
-| 12 | History + debug mode (persistence) | ⬜ |
-| 13 | Error handling pass | ⬜ |
-| 14 | Full regression on a physical device | ⬜ |
-| 15 | UI polish | ⬜ |
-| 16 | Release build | ⬜ |
+| **1** | Project setup, Compose, structure, base UI, builds + tests | ✅ done |
+| **2** | Speech-to-text (microphone → `String`) | ✅ done |
+| **3** | Text-to-speech (reply out loud) | ✅ done |
+| **4** | `AssistantCommand` model | ✅ done |
+| **5** | Rule-based parser + unit tests | ✅ done |
+| **6** | Command execution layer (volume, sound modes, media, maps, apps, settings). **7–11 were folded into this phase** — volume, music, maps, app launching and sound modes all ship here, with `ACCESS_NOTIFICATION_POLICY` | ✅ done |
+| **6.5** | Hardening pass on the action layer: audit defects D1–D11, A1–A3 | ✅ done |
+| **P1** | Parser coverage & precision (word order, politeness, modes, "find my X", skip) | ✅ done |
+| **P1.6** | Debug text input — a second input into the existing pipeline | ✅ done |
+| **12** | History persistence — JSON file, capped at 200, excluded from backup | ✅ done |
+| **Regression** | Full suite green on hardware (the counts grew after each pass; see `PROJECT_STATUS.md`) | ✅ done |
+| **R1** | Correctness pass: startup-race data loss, clear-during-load, stale TTS failure, non-atomic save | ✅ done, device-verified |
+| **R2** | Documentation truth and version metadata (`1.0.0`). **No behaviour change** | ✅ done (this phase) |
+| 7–11 | *Retired.* Folded into Phase 6 — see above | 🔀 folded into 6 |
+| **R3** | Release build | ⬜ next |
+| 13 | Error handling pass | ⬜ not started |
+| 15 | UI polish (also: move `*Messages` strings into `strings.xml`) | ⬜ not started |
+| 16 | Release — *numbering superseded by R3* | ⬜ see R3 |
 
-**Verified for Phase 1 (real build, on a physical device):**
-- `:app:assembleDebug` → BUILD SUCCESSFUL, APK produced (`artifacts/aria-phase1-debug.apk`)
-- `:app:testDebugUnitTest` → 4 tests, 0 failures
-- `:app:assembleDebugAndroidTest` → instrumented test APK compiles
-- Toolchain used: JDK 17, Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.12.01
+**The original 16-phase plan is no longer the map.** Three of its later phases
+(13, 15, 16) are still open as *work*, but the release is now R3, and the numbering
+in between no longer corresponds to anything that happened.
 
-**Phase 2** was merged (`PR #1`) and verified by the owner on a physical Samsung
-device: speech-to-text works, permission is requested on tap, no crashes.
+### Verification: two records, never one
 
-**Phase 3** was merged (`PR #2`, `PR #3`) and verified by the owner on a physical
-Samsung device after two build fixes (a shadowed `val` in `shutdown()`, and one
-stale Phase 2 assertion). Speech round-trips and TTS is mute-able.
+Every phase from 2 onwards was written in an environment with **no JDK and no Android
+SDK**, so the agent could not compile or run anything. Every phase was then built and
+run **by the owner** on a physical Samsung device. Both facts are true at the same
+time, and conflating them has already caused real damage:
 
-**Phase 4** was merged (`PR #4`) and verified by the owner on a physical Samsung
-device.
+- A reader who sees "⚠️ not compiled" throughout these docs can conclude, as an
+  external reviewer did, that **nobody ever ran this**.
+- A reader who sees "done ✅" can conclude the agent verified it.
 
-**Phase 5 status — read this before trusting the build:**
-- 125 unit tests and 6 instrumented tests are written.
-- **Phase 5 is purely additive**: three new files in `command/` and one new test
-  file. `AssistantViewModel`, `AssistantUiState`, every UI file, every Gradle
-  file and the Phase 4 model are **unchanged**.
-- Phase 5 is merged and its one test-file defect was fixed on `master`
-  (`b06a9e8`), so `master` is expected to be 125/125 green.
+So the two are recorded separately and by name. The agent's record is "written and
+hand-reviewed, not executed here". The owner's record — device, commands, counts,
+manual checklist, dates — is `PROJECT_STATUS.md`. When the two disagree, or when this
+guide disagrees with either, **`PROJECT_STATUS.md` is the authority.**
 
-**Phase 6 status — read this before trusting the build:**
-- One new package (`actions/`, 27 files) plus edits to the ViewModel, the UI
-  state, both factories, `AriaApplication`, the manifest and the preview/test
-  sample data. `AssistantCommand`, `AudioStream`, the parser and every Gradle
-  file are **unchanged**.
-- 257 unit test methods are written (125 before + 132 new) and 6 instrumented.
-- ⚠️ **Nothing in Phase 6 has been compiled.** No JDK, no Android SDK and no
-  route to Google's Maven repo in the sandbox. Run
-  `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
-- See `docs/PHASE6.md` §10 for exactly what was and was not verified, and §11 for
-  the manual test script.
-- The first real builds (by the owner) found four defects, one of them a genuine
-  product bug (a spoken failure turned the card green). All are fixed and recorded
-  in `docs/PHASE6-fixes.md`, which is the most useful document in this repo for
-  understanding *why* the honesty rules matter.
-
-**Phase 6.5 status — read this before trusting the build:**
-- Scope was **only** the audit items D1–D11 and A1–A3: no new command category, no
-  architecture change, no new dependency, no Gradle/AGP/Kotlin change.
-  `AssistantCommand` gained `UnmuteMedia` and `Rejected`, `ExecutionResult` gained
-  `Rejected` and `Failure.reason`, `AssistantStatus` gained `REJECTED`.
-- Two defects were *not* changed because they were already correct or the code did
-  not need touching: **A2** (`dispatchMediaKeyEvent` already sends DOWN + UP) was
-  verified only, and the "Open settings" feature (D2) is new UI but the only new
-  widget in the whole phase.
-- ⚠️ **Nothing in Phase 6.5 has been compiled or tested.** No JDK, no Android SDK,
-  no route to Google's Maven repo. Run
-  `./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest`.
-- `docs/PHASE6.5.md` holds the before/after table per defect, the decisions, the
-  limitations and the phone script. Phase 7 was **not** started.
-
-**Phase P1 status — read this before trusting the build:**
-- Parser-only: `RuleBasedCommandParser.kt` and `TextNormalizer.kt` plus one new
-  test file. No new commands, no handler/ViewModel/UI/manifest/Gradle change, and
-  the rule chain still runs in the Phase 5 order.
-- 345 unit tests (313 before). ⚠️ **Nothing in P1 has been compiled** — no JDK or
-  Android SDK in the sandbox.
-- Three sub-items in the brief were already correct (`volume up`, `turn my phone
-  silent`, `go back`) and were left alone; they now have guard tests instead.
-- P1 was completed and then fixed twice after real builds (an unresolved helper,
-  then a deleted guard). Both are recorded in `docs/PHASE-P1.md` §8–9.
-
-**Phase P1.6 status:**
-- Debug-only text field. Submit calls `onSubmitTextInput` → `runCommand(text, source)`,
-  the same private function a final speech result calls. No second command path.
-- No microphone: typed input works with RECORD_AUDIO denied or no speech service.
-- `InputSource { VOICE, TEXT }` on the UI state and on every history row.
-- 362 unit tests (347 before) and 14 instrumented (9 before). ⚠️ **Not compiled** —
-  no JDK/SDK in the sandbox; see `docs/PHASE-P1.6.md` §7 for the typed device script.
-**Phase 12 status (V1 completion, step 1 of 4):**
-- History survives a restart: `history/HistoryStore` (pure) +
-  `history/FileHistoryStore` (JSON in `filesDir`, atomic write, never throws).
-- Capped at 200 in the pure layer (`capHistory`), enforced in the ViewModel's state
-  and again in the adapter.
-- `history.json` is excluded from auto-backup AND device transfer — transcripts are
-  the most private data the app makes.
-- The store is a REQUIRED constructor parameter with no default, so production
-  cannot silently fall back to a no-op.
-- 385 unit tests (362 before) and 28 instrumented (14 before). ⚠️ **Not compiled** —
-  no JDK/SDK in the sandbox.
-
-- `docs/PHASE-P1.md` records the before/after, the entity-vs-matching-view decision
-  that keeps `"play Please Please Please"` intact, and the phone script.
+The per-phase notes that used to sit here (Phase 5's 125 tests, Phase 6's 257
+methods, Phase 6.5's audit table, P1's 345, P1.6's 362, Phase 12's 385) were all
+superseded by later phases and pushed readers to compare stale numbers. They now live
+in the phase documents, which state their own scope, and the current counts are in
+`PROJECT_STATUS.md`.
 
 ---
 
@@ -128,9 +71,14 @@ A recognised sentence is now parsed, executed and reported with the real outcome
 ("Media volume down to 47%."), and the history row carries the parsed command type
 (`VOLUME_DOWN`) and the handler that served it (`VolumeActionHandler`).
 
-Still absent, on purpose: no persistence (Phase 12), no history UI beyond the
-in-memory list, no LLM interpretation, no music *playback* control beyond
-dispatching transport keys, no notification-listener or accessibility access.
+Persisted history arrived in Phase 12 (JSON in `filesDir`, capped, excluded from
+backup); the mute preference is still **not** persisted.
+
+Still absent, on purpose: no LLM interpretation, no music *playback* control beyond
+dispatching transport keys, no notification-listener or accessibility access. The
+deliberately deferred work (better/offline STT, Persian, capability registry,
+risk/confirmation model, conversation memory, dedupe by interaction id) is listed in
+`PROJECT_STATUS.md` §4.
 
 Two Phase 6 outcomes that look like errors but are not:
 
@@ -218,7 +166,7 @@ need, through a small interface so the logic stays JVM-testable.
 | Action outcome vocabulary (Phase 6 ✅) | `actions/ExecutionResult.kt` (+ `ActionMessages.kt`) |
 | Android seams for actions (Phase 6 ✅) | `actions/*Controller.kt`, `InstalledAppsProvider.kt`, `Launcher.kt` |
 | Installed-app discovery (Phase 6 ✅) | `actions/InstalledAppsProvider.kt` |
-| History persistence (Phase 12) | `history/CommandHistoryRepository.kt` |
+| History persistence (Phase 12 ✅) | `history/HistoryStore.kt` (pure contract + `capHistory`) and `history/FileHistoryStore.kt` (the only Android code) — *R2 correction: this row named a `CommandHistoryRepository.kt` that was never created* |
 | Permission helpers (Phases 2, 6 ✅) | `permissions/PermissionManager.kt`, `permissions/PolicyAccessChecker.kt` |
 | Rejection vocabulary (Phase 6.5 ✅) | `actions/RejectionMessages.kt` (+ `AssistantCommand.Rejected`) |
 | Speech event/error vocabulary (Phase 2 ✅) | `voice/SpeechRecognizerManager.kt` |
@@ -341,7 +289,7 @@ response / `PHASE1.md`.
 ```bash
 cd ARIA
 ./gradlew :app:assembleDebug        # APK → app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest    # 257 unit tests, no device needed
+./gradlew :app:testDebugUnitTest    # unit tests, no device needed (390)
 ./gradlew :app:installDebug         # install on a connected device
 
 # Phase 3 acceptance (all three must pass before calling it done):
@@ -367,7 +315,8 @@ A phase is finished only when *all* of these are true:
 2. `./gradlew :app:testDebugUnitTest` succeeds (add tests for new logic).
 3. New behaviour is explained to the owner in plain language.
 4. Owner is told exactly what to tap/say to verify it on the phone.
-5. This guide's phase table is updated.
+5. `PROJECT_STATUS.md` is updated — the counts, the device results and the date.
+   This guide only needs touching if the **architecture** changed.
 6. No unrelated changes were bundled in.
 
 ---
@@ -405,11 +354,12 @@ A phase is finished only when *all* of these are true:
 - Samsung devices: sound-mode changes require "Do Not Disturb access" on many
   builds. As of Phase 6 ARIA detects it, changes nothing, and explains it — it
   never requests or grants that access itself.
-- The agent sandbox used for Phase 2 had **no JDK and no Android SDK**, and its
+- The agent sandbox used for every phase had **no JDK and no Android SDK**, and its
   network allowlist does not include `services.gradle.org` or Google's Maven repo,
   so Gradle cannot provision itself either. Android phases there can only be
   written and reviewed. Plan the build/verification step for a machine that has
-  Android Studio.
+  Android Studio — which is exactly what the owner did, on real hardware, for every
+  merged phase. "The sandbox cannot build" never meant "the project is unbuilt".
 - Phase 2 added exactly two dependencies: `kotlinx-coroutines-test` (test-only,
   `1.8.1`) and an explicit `material-icons-core` (it no longer arrives
   transitively from material3, and the settings gear needs it).

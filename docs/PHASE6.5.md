@@ -6,10 +6,11 @@ action layer, the parser and the speech/UI seam. **Phase 6.5 fixes exactly those
 and adds nothing else.** No new command category, no architecture change, no new
 dependency, no Gradle/AGP/Kotlin change.
 
-> ⚠️ **Nothing in Phase 6.5 has been compiled or tested.** The sandbox has no
-> JDK, no Android SDK and no route to Google's Maven repository. Every "after"
-> statement below is a statement about the *code*, not about an observed run. The
-> exact commands to verify are in §7.
+> ⚠️ **Nothing in Phase 6.5 was compiled or tested by the authoring agent.** That
+> sandbox had no JDK, no Android SDK and no route to Google's Maven repository. Every
+> "after" statement below is a statement about the *code* as written by the agent.
+> The exact commands are in §7, and the owner ran them on hardware: the defects this
+> phase was audited for were confirmed gone. See `PROJECT_STATUS.md`.
 
 ---
 

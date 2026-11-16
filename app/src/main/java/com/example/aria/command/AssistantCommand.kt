@@ -46,12 +46,13 @@ sealed interface AssistantCommand {
     val displayName: String
 
     // ─────────────────────────────────────────────────────────────────────────
-    // MEDIA — playback control. Phase 8 will implement it.
+    // MEDIA — playback control. Implemented in Phase 6 (R2 correction: this used
+    // to defer it to "Phase 8", a number retired when 7-11 were folded into 6).
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Start playing something. [query] is whatever the user said, not a resolved
-     * track: resolving it (or handing it to a provider) is Phase 8's problem.
+     * track: resolving it (or handing it to a provider) is the executor's job.
      * An empty query means "just play", not "play nothing" — the parser is
      * responsible for deciding that before constructing the command.
      */
@@ -81,7 +82,8 @@ sealed interface AssistantCommand {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // VOLUME — level control on a specific stream. Phase 7 will implement it.
+    // VOLUME — level control on a specific stream. Implemented in Phase 6 (R2
+    // correction: this used to defer it to "Phase 7", since folded into 6).
     // ─────────────────────────────────────────────────────────────────────────
 
     /** One step louder on the media stream. */
@@ -150,8 +152,10 @@ sealed interface AssistantCommand {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SOUND MODES — the ringer profile. Phase 11 will implement it (and will
-    // need Do Not Disturb access on Samsung devices).
+    // SOUND MODES — the ringer profile. Implemented in Phase 6 (R2 correction:
+    // this comment used to say "Phase 11 will implement it" — that phase number
+    // was retired when 7-11 were folded into 6). Needs Do Not Disturb access on
+    // Samsung devices, which ARIA can only REPORT as missing, never request.
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Silent: no ringtone, no vibration. */
@@ -170,7 +174,8 @@ sealed interface AssistantCommand {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // MAPS — navigation intents. Phase 9 will implement it.
+    // MAPS — navigation intents. Implemented in Phase 6 (R2 correction: this used
+    // to defer it to "Phase 9", since folded into 6).
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Open the maps app with no particular destination. */
@@ -189,15 +194,17 @@ sealed interface AssistantCommand {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // APPS — launching. Phase 10 will implement it, including the "app not
-    // installed" case this model cannot express yet.
+    // APPS — launching. Implemented in Phase 6, including the "app not
+    // installed" case (reported as ExecutionResult.NotSupported). R2 correction:
+    // this comment used to defer the work to "Phase 10", a number retired when
+    // 7-11 were folded into 6.
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Launch an installed app by the name the user said.
      *
-     * [appName] is raw speech, not a package id: Phase 10 resolves it against
-     * the installed-app list and reports back if nothing matches.
+     * [appName] is raw speech, not a package id: the executor resolves it
+     * against the installed-app list and reports back if nothing matches.
      */
     data class OpenApp(val appName: String) : AssistantCommand {
         override val displayName: String get() = "Open \"$appName\""

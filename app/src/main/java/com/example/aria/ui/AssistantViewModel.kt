@@ -172,12 +172,19 @@ class AssistantViewModel(
     /**
      * PHASE 12 — serialises every touch of [historyStore].
      *
-     * WHY A MUTEX AND NOT JUST "LAUNCH IT": the initial load is asynchronous, so a
-     * command typed the instant the app opens can complete *before* the load
-     * returns. Without a lock that append would write a one-row list over the
-     * stored history — silently destroying it. Every read-modify-write of the
-     * store therefore runs inside this mutex, in one coroutine at a time, so the
-     * load always lands first and no write can interleave with it.
+     * WHY A MUTEX AND NOT JUST "LAUNCH IT": every read-modify-write of the store
+     * runs inside this mutex, in one coroutine at a time, so two store accesses can
+     * never interleave and a write can never observe a half-applied load.
+     *
+     * WHAT THE MUTEX ALONE DOES *NOT* DO (corrected in R1, and the reason this
+     * comment is worded this way): it does not ORDER the startup load against a
+     * save. A lock serialises accesses; it cannot make a coroutine that has not
+     * asked for it yet run first. The original wording here claimed that it did —
+     * "so the load always lands first" — and that was false: a command typed the
+     * instant the app opens could write a one-row list over the stored history
+     * before the load ever reached the lock. The ordering is now established
+     * explicitly, by [persistHistory] joining [historyLoadJob] *before* taking this
+     * mutex. The lock is still required, but for atomicity, not for ordering.
      */
     private val historyMutex = Mutex()
 

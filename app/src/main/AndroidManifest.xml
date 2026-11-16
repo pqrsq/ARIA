@@ -2,14 +2,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        PHASE 2 — the first permission ARIA declares.
+        PHASE 2 — the first permission ARIA declares: the microphone.
 
         Declaring it does NOT prompt the user. ARIA requests RECORD_AUDIO only
         when the microphone button is tapped (see
         ui/MicrophonePermissionController.kt), which is what Android's
         guidelines require for a microphone.
 
-        Phase 11 will add the sound-mode permissions.
+        PHASE 6 — ACCESS_NOTIFICATION_POLICY, the second and last one. Sound
+        modes need it to change the ringer profile, and it is still not requested
+        at launch: it opens a system settings page and only the user can grant it.
+
+        CORRECTION (R2): this comment used to read "Phase 11 will add the
+        sound-mode permissions." That phase number was retired when phases 7-11
+        were folded into Phase 6, so the note pointed at work that had already
+        shipped and made the declared permission look accidental. There is no
+        "Phase 11" and there is nothing left to add here.
     -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
