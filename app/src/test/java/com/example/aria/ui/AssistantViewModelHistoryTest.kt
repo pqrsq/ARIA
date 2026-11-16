@@ -335,6 +335,128 @@ class AssistantViewModelHistoryTest {
         assertTrue(store.stored.isEmpty())
     }
 
+    // ── R1 (C1 / C1b): the startup ordering and clear races ──────────────────
+
+    @Test
+    fun `a command run while the initial load is still running keeps the stored rows`() =
+        runTest(dispatcher) {
+            // THE COLD-START DATA LOSS, REPRODUCED DETERMINISTICALLY.
+            //
+            // The load is held inside the gate, so this is exactly the window a
+            // user creates by opening ARIA and typing immediately. Before the fix
+            // the save did not wait for the load: it wrote the state's list, which
+            // at that moment held only the new row, over a file that still had
+            // [A, B, C]. The rows survived in memory but were gone from disk.
+            //
+            // ASSERTION ON `store.stored`, NOT ON THE UI STATE: the state recovered
+            // the rows in memory even when the file was clobbered, so asserting on
+            // the state would have passed before the fix and proved nothing.
+            val gate = CompletableDeferred<Unit>()
+            val store = FakeHistoryStore(
+                // Newest first, the order load() returns and publish() builds.
+                stored = listOf(
+                    record(id = 3, transcript = "C", timestamp = 3_000),
+                    record(id = 2, transcript = "B", timestamp = 2_000),
+                    record(id = 1, transcript = "A", timestamp = 1_000)
+                )
+            ).apply { loadDeferred = gate }
+
+            val vm = viewModel(store)
+            assertTrue("the load must have reached the gate", store.loadStarted)
+
+            // The user types a command before the load has returned.
+            nowMillis = 4_000L
+            vm.say("turn the volume up")
+            assertEquals("no save may land while the load is in flight", 0, store.saves.size)
+
+            gate.complete(Unit)
+
+            // Everything the store has been told, and what it finally holds.
+            val finalHistory = store.stored
+            assertEquals(
+                "the stored rows AND the new command must all survive: $finalHistory",
+                4,
+                finalHistory.size
+            )
+            assertEquals(
+                listOf("turn the volume up", "C", "B", "A"),
+                finalHistory.map { it.rawSpeech }
+            )
+            // D1/D7 invariants still hold: no merge duplication in the state, and
+            // the state and the file agree on the order (newest first) as well as
+            // the contents.
+            assertEquals(4, vm.uiState.value.history.size)
+            assertEquals(
+                finalHistory.map { it.rawSpeech },
+                vm.uiState.value.history.map { it.rawSpeech }
+            )
+        }
+
+    @Test
+    fun `two commands queued behind the load both survive to the file`() = runTest(dispatcher) {
+        // CATCHES A SNAPSHOT READ OUTSIDE THE MUTEX.
+        //
+        // Both saves are made while the load is gated, so both are queued behind
+        // it. With the list captured at request time (the old code), the FIRST
+        // save held `[up]` — a snapshot taken before the second command and before
+        // the load's rows existed — and it wrote that list LAST, wiping the other
+        // command and the restored rows straight out of the file. Reading the
+        // snapshot inside the mutex means every write reflects the state as it is
+        // when the write happens.
+        //
+        // Deliberately NOT gating the saves themselves: the mutex already orders
+        // them, and a gate there would prove coroutine scheduling rather than the
+        // defect.
+        val gate = CompletableDeferred<Unit>()
+        val store = FakeHistoryStore(
+            stored = listOf(record(id = 3, transcript = "C", timestamp = 3_000))
+        ).apply { loadDeferred = gate }
+
+        val vm = viewModel(store)
+
+        vm.say("turn the volume up")
+        nowMillis = 2_000L
+        vm.say("turn the volume down")
+        assertEquals("nothing may be written while the load owns the lock", 0, store.saves.size)
+
+        gate.complete(Unit)
+
+        val transcripts = store.stored.map { it.rawSpeech }
+        assertEquals("both commands and the stored row: $transcripts", 3, transcripts.size)
+        // Newest first: the last command, then the earlier one, then the stored row.
+        assertEquals(
+            listOf("turn the volume down", "turn the volume up", "C"),
+            transcripts
+        )
+        // No duplicate rows: D1 still holds through the merge.
+        assertEquals(3, vm.uiState.value.history.size)
+    }
+
+    @Test
+    fun `a clear during the initial load is not undone on disk`() = runTest(dispatcher) {
+        // R1 (C1b). clear() empties the state and the store, but the load had
+        // already read the old rows before it suspended. Without discarding that
+        // stale result the load merges them straight back — the user clears the
+        // history, and the rows are on screen and in the file again.
+        val gate = CompletableDeferred<Unit>()
+        val store = FakeHistoryStore(
+            stored = listOf(record(id = 1, transcript = "stored row"))
+        ).apply { loadDeferred = gate }
+
+        val vm = viewModel(store)
+        assertTrue("the load must have reached the gate", store.loadStarted)
+
+        vm.clearHistory()
+        gate.complete(Unit)
+
+        assertTrue(
+            "the clear must win over the in-flight load: ${vm.uiState.value.history}",
+            vm.uiState.value.history.isEmpty()
+        )
+        assertTrue("the store must stay empty: ${store.stored}", store.stored.isEmpty())
+        assertEquals(1, store.clearCount)
+    }
+
     // ── No production no-op default ──────────────────────────────────────────
 
     @Test

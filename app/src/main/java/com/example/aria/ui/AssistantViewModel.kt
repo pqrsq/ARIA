@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -181,6 +182,21 @@ class AssistantViewModel(
     private val historyMutex = Mutex()
 
     /**
+     * R1 (C1b) — bumped by every [clearHistory], read by every history write.
+     *
+     * WHY A COUNTER AND NOT job.cancel(): a load already suspended inside
+     * `historyStore.load()` has *already read* the rows it is about to merge. If
+     * the user clears the history during that suspension, cancelling the job is a
+     * race — it might already be past the suspension point — and a cancel cannot
+     * help a persist that was queued before the clear either. A monotonic counter
+     * is decided at the moment the write is about to happen: if a clear occurred
+     * since the request was made, the request is stale and is dropped. Simple,
+     * deterministic, and it covers BOTH the load merge and an in-flight save (the
+     * case where a clear is followed by an older snapshot being written back).
+     */
+    private val historyGeneration = AtomicInteger(0)
+
+    /**
      * PHASE 12 — completes when the initial load has been applied to the state.
      *
      * Kept so a clear during startup can wait for the load instead of racing it:
@@ -199,6 +215,9 @@ class AssistantViewModel(
         // PHASE 12: restore before the user can do anything meaningful. The rows
         // are PREPENDED to whatever is already in memory (usually nothing), so a
         // command that somehow completes first is not thrown away.
+        // Captured BEFORE the job is launched, so a clear issued at any point
+        // from here on is detected when the load returns.
+        val loadGeneration = historyGeneration.get()
         historyLoadJob = viewModelScope.launch {
             // A store that throws must not take the app with it: history is a
             // convenience, and the ViewModel's contract is that a broken file
@@ -208,9 +227,25 @@ class AssistantViewModel(
             // rather than merely intended.
             val stored = guardHistory { historyStore.load() } ?: emptyList()
             if (stored.isEmpty()) return@launch
+            // R1 (C1b): the history was cleared while `load()` was suspended. The
+            // rows in `stored` were read from a file that no longer exists, so
+            // merging them would resurrect exactly what the user deleted. Discard
+            // the whole result — including the id counter — and leave the empty
+            // state the clear produced.
+            if (historyGeneration.get() != loadGeneration) return@launch
             // Continue numbering after the restored rows, so a new record can
             // never collide with a stored id (the ids are only used for list
             // identity in Compose).
+            //
+            // R1 — SCOPE NOTE, STATED RATHER THAN HIDDEN: a command that completed
+            // WHILE this load was in flight was already given an id from 1, so it
+            // can carry the same id as a restored row. That is not caused by the
+            // persistence fix and is unchanged by it — it is visible only when the
+            // user commands ARIA before the first read returns. [HistoryList] does
+            // not supply a `key()`, so Compose is affected at most as a list
+            // identity, never as a crash; renumbering rows here would mean mutating
+            // history in a coroutine that a clear() may have already invalidated.
+            // Left as an observation for the audit rather than silently "fixed".
             nextId.updateAndGet { current -> maxOf(current, stored.maxOf { it.id } + 1) }
             _uiState.update { state ->
                 state.copy(history = capHistory(state.history + stored))
@@ -806,25 +841,66 @@ class AssistantViewModel(
                 val isOurs = isCurrentUtterance(event.utteranceId)
                 if (isOurs) awaitingUtteranceId = null
                 _uiState.update { state ->
-                    state.copy(
-                        status = if (state.status == AssistantStatus.SPEAKING) {
-                            settledStatusFor(state)
-                        } else {
-                            state.status
-                        },
-                        ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
-                    )
+                    // R1 (C2a): mirror SpeakFinished. A failure belonging to a
+                    // superseded utterance must leave the CURRENT card alone — the
+                    // id was computed above but this branch used to update the
+                    // state regardless, so a late failure from an old reply
+                    // repainted the new card with a stale "could not speak"
+                    // warning. A non-matching event touches neither the status
+                    // nor ttsMessage.
+                    if (!isOurs) {
+                        state
+                    } else {
+                        state.copy(
+                            status = if (state.status == AssistantStatus.SPEAKING) {
+                                settledStatusFor(state)
+                            } else {
+                                state.status
+                            },
+                            ttsMessage = TtsMessages.forError(TtsError.SPEAK_FAILED)
+                        )
+                    }
                 }
             }
         }
     }
 
     /**
-     * PHASE 6.5 (D7) — true when [utteranceId] is the utterance being awaited.
+     * PHASE 6.5 (D7) / R1 (C2b) — true when [utteranceId] is the utterance being
+     * awaited.
      *
      * A null id (the engine stopped everything, or a fake without ids) is
      * accepted: those events are about "audio stopped", not about one utterance,
      * and ignoring them would leave the card stuck on SPEAKING.
+     *
+     * DELIBERATELY PERMISSIVE, AND LEFT THAT WAY ON PURPOSE. The obvious
+     * "tightening" — `utteranceId != null && utteranceId == awaitingUtteranceId` —
+     * was evaluated and rejected, because the id-less event is not noise, it is
+     * the engine's *intentional* stop:
+     *
+     *  - [TextToSpeechManager.stop] emits `SpeakFinished()` with NO id (line 216).
+     *    That is the event a barge-in or a trip to the background produces, and
+     *    something has to settle the card when it arrives.
+     *  - `onAppBackgrounded()` relies on exactly that: it stops the engine and then
+     *    clears both ids, and the id-less event must still be honoured.
+     *  - A silent engine failure reported without an id still has to reach the
+     *    user; the "speak failure" tests assert that an id-less `SpeakFailed`
+     *    produces the warning.
+     *
+     * Making matching strict would therefore require resetting the state
+     * synchronously at every `stop()` call site to replace what the id-less event
+     * currently does — a behavioural change to barge-in, which this round is
+     * explicitly forbidden from making.
+     *
+     * WHAT WAS ACTUALLY FIXED INSTEAD (C2a): a *non-matching, id-bearing* event is
+     * now ignored by BOTH handlers. That was the real defect — an old utterance
+     * carrying an identifiable id was repainting the current card — and it is
+     * fixed without touching the id-less contract.
+     *
+     * NOTE ON THE `awaitingUtteranceId == null` TERM: when nothing is awaited the
+     * ViewModel is not filtering anything, so an event is admitted. Tightening
+     * this term alone would strand the card whenever an id-less stop arrived
+     * after the ids had been cleared.
      */
     private fun isCurrentUtterance(utteranceId: String?): Boolean =
         utteranceId == null || awaitingUtteranceId == null || utteranceId == awaitingUtteranceId
@@ -1006,6 +1082,11 @@ class AssistantViewModel(
         // PHASE 6.5 (D1): the snapshot must go with the history, or a duplicate
         // spoken just after a clear would resurrect the card that was cleared.
         settledState = null
+        // R1 (C1b): invalidate every history write requested before this point.
+        // A load already suspended in `load()`, or a save already queued, belongs
+        // to the history the user just deleted; without this they would write it
+        // back and the records would return after a restart.
+        historyGeneration.incrementAndGet()
         _uiState.update { it.copy(history = emptyList(), isAwaitingPermission = false) }
 
         // PHASE 12: the store is cleared too, inside the same mutex the load and
@@ -1025,21 +1106,6 @@ class AssistantViewModel(
         }
     }
 
-    /**
-     * PHASE 12 — writes the current history to [historyStore].
-     *
-     * WHAT IS WRITTEN: the state's own list, capped. Not "the new row plus a
-     * stale copy" — that duplication is how a store drifts from the UI.
-     *
-     * WHY IT DOES NOT AWAIT THE LOAD: it takes the same mutex, so if the load is
-     * still running the save simply queues behind it, and because the load
-     * PREPENDS the stored rows while this writes the resulting list, the merge is
-     * preserved whichever one wins.
-     *
-     * WHY IT IS FIRE-AND-FORGET: the caller is inside the command pipeline, and a
-     * slow disk must not delay the result card or the spoken reply. [HistoryStore]
-     * does not throw, and the in-memory list stays authoritative for the session.
-     */
     /**
      * PHASE 12 — runs one store call, swallowing anything it throws.
      *
@@ -1064,10 +1130,58 @@ class AssistantViewModel(
             null
         }
 
+    /**
+     * R1 (C1) — writes the current history to [historyStore].
+     *
+     * WHAT IS WRITTEN: the state's own list, capped, read while the store lock is
+     * held. Not "the new row plus a stale copy" — that duplication is how a store
+     * drifts from the UI — and not a list captured earlier, for the same reason.
+     *
+     * WHAT IT WAITS FOR: the initial load. It joins [historyLoadJob] before taking
+     * the mutex, so a command run immediately after a cold start persists the
+     * restored rows along with the new one. A previous version of this comment
+     * claimed the mutex alone made that safe ("the save simply queues behind it…
+     * the merge is preserved whichever one wins"). That was wrong: the load is a
+     * separate coroutine, nothing ordered it before the save, and a save that ran
+     * first wrote a list without the stored rows — losing them on disk. The join
+     * is what makes the ordering real; the mutex only makes each store access
+     * atomic.
+     *
+     * WHY THE JOIN CANNOT DEADLOCK: the mutex is taken by [guardHistory], i.e.
+     * strictly after the join returns. Holding it while joining would have the
+     * save waiting on the load and the load waiting on the lock.
+     *
+     * WHY IT STILL DOES NOT BLOCK THE CALLER: the join happens inside the
+     * launched coroutine, so the command pipeline returns to the UI immediately.
+     * A slow disk never delays the result card or the spoken reply.
+     */
     private fun persistHistory() {
-        val snapshot = _uiState.value.history
+        // R1 (C1b): the generation is captured with the request, not with the
+        // write, so a clear that lands while this save is still queued can be
+        // detected and the stale write dropped instead of resurrecting the rows.
+        val generation = historyGeneration.get()
         viewModelScope.launch {
-            guardHistory { historyStore.save(snapshot) }
+            // R1 (C1) — WAIT FOR THE STARTUP LOAD FIRST, AND BEFORE THE MUTEX.
+            //
+            // This is the fix for the cold-start data loss: the load runs in its
+            // own coroutine, so without this join a command executed immediately
+            // after launch saved `[new]` over a file that still held the older
+            // rows, and the load's merge then happened only in memory.
+            //
+            // WHY THE JOIN SITS OUTSIDE guardHistory: guardHistory is what takes
+            // historyMutex, and the load needs that same mutex to apply its
+            // result. Joining while holding it would wait for a job that is
+            // waiting for the lock — a deadlock. Join first, lock second.
+            historyLoadJob?.join()
+            if (historyGeneration.get() != generation) return@launch
+            guardHistory {
+                // THE SNAPSHOT IS READ *INSIDE* THE MUTEX. Reading it before the
+                // launch (as this used to) let two concurrent saves capture
+                // overlapping lists and let the second overwrite the first with a
+                // snapshot that predated it — a lost update. Under the lock, each
+                // save writes the state as it is at the moment of writing.
+                historyStore.save(_uiState.value.history)
+            }
         }
     }
 

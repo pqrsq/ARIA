@@ -221,4 +221,76 @@ class HistoryStoreInstrumentedTest {
         // the one that must round-trip.
         assertFalse(store.load().isEmpty())
     }
+
+    // ── R1 (C3): a failed replace must never destroy the existing history ────
+
+    @Test
+    fun aFailedReplace_doesNotLoseThePreviousHistoryFile() = runBlocking {
+        // THE DEFECT THIS EXISTS FOR, in the shape it actually took.
+        //
+        // save() used to rename the temp file over the target, and when that
+        // failed it deleted the target and retried. On this platform renameTo does
+        // not overwrite, so delete-then-rename was the NORMAL path: between the
+        // delete and the retry there was no history file at all. A kill or a crash
+        // there lost everything, permanently.
+        //
+        // HOW THE MOVE IS FORCED TO FAIL: the target path is made a NON-EMPTY
+        // DIRECTORY. A move onto a directory cannot succeed (they are different
+        // kinds of thing), yet the path still exists, so it stands in for the
+        // "replace refused" case — and crucially, if the implementation still
+        // deleted the target first, this assertion finds it gone.
+        val store = newStore()
+        val target = store.file
+
+        // Old code did target.delete() here. Deleting a non-empty directory
+        // silently fails, so to detect that intent we plant the previous content
+        // INSIDE the directory: if anything removed it, the marker disappears.
+        target.delete()
+        assertTrue(target.mkdirs())
+        val marker = File(target, "previous-history-was-here")
+        marker.writeText("the rows the user already had")
+
+        store.save(listOf(record(1)))
+
+        assertTrue(
+            "the target must still exist after a failed replace",
+            target.exists()
+        )
+        assertTrue(
+            "the previous content must not have been deleted before the new one was in place",
+            marker.exists()
+        )
+        assertEquals(
+            "the previous content must be untouched",
+            "the rows the user already had",
+            marker.readText()
+        )
+        // A half-written temp file must not be left for the next load to find.
+        assertFalse(
+            "a leftover temp file would be picked up by load()",
+            File(directory, "${FileHistoryStore.FILE_NAME}.tmp").exists()
+        )
+    }
+
+    @Test
+    fun saving_overAnExistingFile_keepsTheFileAndItsNewContent() = runBlocking {
+        // The successful-replace half of C3, and the reason delete-first was so
+        // dangerous here: replacing an EXISTING file is the ordinary case, not an
+        // edge case. The old rows must be superseded without the file ever
+        // disappearing.
+        val store = newStore()
+        store.save(listOf(record(1, transcript = "first")))
+        assertTrue(store.file.isFile)
+
+        store.save(listOf(record(2, transcript = "second")))
+
+        assertTrue("the file must still be there", store.file.isFile)
+        val reloaded = newStore().load()
+        assertEquals(1, reloaded.size)
+        assertEquals("second", reloaded.single().rawSpeech)
+        assertFalse(
+            "a leftover temp file was found",
+            File(directory, "${FileHistoryStore.FILE_NAME}.tmp").exists()
+        )
+    }
 }
