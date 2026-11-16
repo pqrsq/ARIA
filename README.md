@@ -223,13 +223,13 @@ on a device without saying anything out loud.
 ## Screenshots
 
 ### Home
-![ARIA Home](docs/screenshots/home.jpg)
+![ARIA Home](docs/screenshots/Home.jpg)
 
 ### Successful command
-![ARIA Success](docs/screenshots/success.jpg)
+![ARIA Success](docs/screenshots/Success.jpg)
 
 ### Rejected command
-![ARIA Rejected](docs/screenshots/rejected.jpg)
+![ARIA Rejected](docs/screenshots/Failure.jpg)
 
 ## Documentation map
 
