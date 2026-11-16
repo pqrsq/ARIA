@@ -165,4 +165,4 @@ own:
 - The **agent** never compiled anything. That is a limitation of one environment, and
   it is now recorded as exactly that.
 
-**Date of last verification: 2026-11-11.** Next update due: after R3.
+**Date of last verification: 2026-11-16.** Next update due: after R3.
