@@ -7,7 +7,7 @@ a977bb0b2217ecb6  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
 44e9a3e243fdf6eb  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
 4acc6d657e719822  app/src/androidTest/java/com/example/aria/DebugTextInputTest.kt
-5251119eaccaa9ff  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
+178a1291c316f769  app/src/androidTest/java/com/example/aria/HistoryStoreInstrumentedTest.kt
 fa3075f894dc89b7  app/src/androidTest/java/com/example/aria/StatusCardTest.kt
 88f617f9739d4364  app/src/main/AndroidManifest.xml
 710a663ffaa6d41f  app/src/main/java/com/example/aria/AriaApplication.kt
@@ -47,13 +47,13 @@ ad627ac81a04093f  app/src/main/java/com/example/aria/command/AudioStream.kt
 35c2ac2568fa6acc  app/src/main/java/com/example/aria/command/CommandParser.kt
 c41284bc7df26f0e  app/src/main/java/com/example/aria/command/RuleBasedCommandParser.kt
 f95a0392e45242d9  app/src/main/java/com/example/aria/command/TextNormalizer.kt
-2898c0e65b675caf  app/src/main/java/com/example/aria/history/FileHistoryStore.kt
+ebeb2f1c0a63a510  app/src/main/java/com/example/aria/history/FileHistoryStore.kt
 109fa1fc28fb30b1  app/src/main/java/com/example/aria/history/HistoryStore.kt
 433d91a30433c909  app/src/main/java/com/example/aria/permissions/PermissionManager.kt
 2c46a7f240633657  app/src/main/java/com/example/aria/permissions/PolicyAccessChecker.kt
 6e3fe38f0b7c1d8b  app/src/main/java/com/example/aria/ui/AssistantScreen.kt
 70d006998bde0423  app/src/main/java/com/example/aria/ui/AssistantUiState.kt
-bcb02a5e07351469  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
+34175ac02e13308b  app/src/main/java/com/example/aria/ui/AssistantViewModel.kt
 7892cb44b9b6b4c6  app/src/main/java/com/example/aria/ui/MicrophonePermissionController.kt
 60e037e84632c6c3  app/src/main/java/com/example/aria/ui/ViewModelFactory.kt
 4ad2243f9eef395d  app/src/main/java/com/example/aria/ui/components/DebugSettingsSheet.kt
@@ -95,11 +95,11 @@ be7c070321ef2e97  app/src/test/java/com/example/aria/actions/MediaActionHandlerT
 e7d408c6e4def277  app/src/test/java/com/example/aria/command/ParserCoverageTest.kt
 494a9ab7a18ac052  app/src/test/java/com/example/aria/command/ParserHardeningTest.kt
 e270b335d5615535  app/src/test/java/com/example/aria/command/RuleBasedCommandParserTest.kt
-155f67269f571954  app/src/test/java/com/example/aria/history/FakeHistoryStore.kt
+e9364d71089b70ea  app/src/test/java/com/example/aria/history/FakeHistoryStore.kt
 7b0ebd74254ca9b8  app/src/test/java/com/example/aria/history/HistoryCapTest.kt
 b218d786bb776425  app/src/test/java/com/example/aria/ui/AssistantUiStateTest.kt
-42cf8a994fbaa717  app/src/test/java/com/example/aria/ui/AssistantViewModelHistoryTest.kt
-b52af1833bfa5d02  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
+e1bdc2489d2295a2  app/src/test/java/com/example/aria/ui/AssistantViewModelHistoryTest.kt
+a0c2ec7366890e7a  app/src/test/java/com/example/aria/ui/AssistantViewModelPhase6Test.kt
 3ae47834491ed2f8  app/src/test/java/com/example/aria/ui/AssistantViewModelTest.kt
 578c5dfc2b53bed7  app/src/test/java/com/example/aria/ui/AssistantViewModelTextInputTest.kt
 ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerManager.kt
@@ -111,6 +111,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 16e0e9395413c907  build.gradle.kts
 035ddfb1a33a1a33  docs/PHASE-P1.6.md
 d78505933538578f  docs/PHASE-P1.md
+130d30b5fda76eee  docs/PHASE-R1.md
 5131030b2c713563  docs/PHASE1.md
 9470eb5268ac5f3a  docs/PHASE12.md
 089f40b35ccb1460  docs/PHASE2.md

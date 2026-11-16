@@ -1,6 +1,7 @@
 package com.example.aria.history
 
 import com.example.aria.ui.CommandRecord
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * PHASE 12 — in-memory [HistoryStore] for JVM tests.
@@ -37,10 +38,33 @@ class FakeHistoryStore(
     /** Slow the load down, so a test can prove an append does not race it. */
     var loadGate: (suspend () -> Unit)? = null
 
+    /**
+     * R1 — DETERMINISTIC suspension for [load].
+     *
+     * `loadGate` above takes a lambda, which makes "the load is now suspended"
+     * something a test has to infer with sleeps. This is a hard gate: while it is
+     * set and not completed, [load] suspends inside the call, so a test can be
+     * certain the load has STARTED and has not RETURNED. That is exactly the
+     * window the cold-start race lived in.
+     *
+     * The records the load will eventually return are captured when it reaches the
+     * gate, i.e. they are the pre-clear rows even if `stored` changes while the
+     * gate is shut — which is what a real `load()` does too, having already read
+     * the file.
+     */
+    var loadDeferred: CompletableDeferred<Unit>? = null
+
+    /** True once [load] has reached the gate — the load has started. */
+    var loadStarted: Boolean = false
+        private set
+
     override suspend fun load(): List<CommandRecord> {
         loadCount++
+        loadStarted = true
+        loadDeferred?.await()
         loadGate?.invoke()
         loadFailure?.let { throw it }
+        // Snapshot at return time, like a real read would.
         return stored
     }
 

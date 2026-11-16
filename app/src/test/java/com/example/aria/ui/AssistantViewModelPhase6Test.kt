@@ -15,7 +15,9 @@ import com.example.aria.voice.FakeSpeechRecognizerManager
 import com.example.aria.history.FakeHistoryStore
 import com.example.aria.voice.FakeTextToSpeechManager
 import com.example.aria.voice.SpeakPriority
+import com.example.aria.voice.TtsError
 import com.example.aria.voice.TtsEvent
+import com.example.aria.voice.TtsMessages
 import com.example.aria.voice.SpeechError
 import com.example.aria.voice.SpeechEvent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,6 +25,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -582,6 +585,83 @@ class AssistantViewModelPhase6Test {
         // The real one settles it.
         tts.emit(TtsEvent.SpeakFinished(current))
         assertEquals(AssistantStatus.SUCCESS, vm.uiState.value.status)
+    }
+
+    @Test
+    fun `a stale failure event does not repaint the current card`() = runTest(dispatcher) {
+        // R1 (C2a). SpeakFinished already ignored a superseded utterance; its
+        // SpeakFailed branch computed the same `isOurs` answer and then ignored it,
+        // so a late failure from an OLD reply wrote a stale "could not speak"
+        // warning over the CURRENT card. The card must be untouched.
+        val vm = viewModel()
+        vm.say("volume up")
+        val current = tts.lastUtteranceId()
+        assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
+        val before = vm.uiState.value
+
+        // A failure callback belonging to an older utterance arrives late.
+        tts.emit(TtsEvent.SpeakFailed(utteranceId = "some-old-utterance"))
+
+        val after = vm.uiState.value
+        assertEquals(
+            "a superseded utterance must not settle the card",
+            AssistantStatus.SPEAKING,
+            after.status
+        )
+        assertEquals(
+            "a superseded utterance must not write a warning: ${after.ttsMessage}",
+            before.ttsMessage,
+            after.ttsMessage
+        )
+        // NOT-OURS MUST BE INERT: the whole card, not just the two fields we
+        // thought to name.
+        assertEquals(before.status, after.status)
+        assertEquals(before.message, after.message)
+        assertEquals(before.rawSpeech, after.rawSpeech)
+        assertEquals(before.spokenReply, after.spokenReply)
+        assertEquals(before.history.size, after.history.size)
+
+        // The failure that IS ours still reaches the user — the fix must not
+        // silence the engine's genuine complaint.
+        tts.emit(TtsEvent.SpeakFailed(current))
+        assertEquals(
+            TtsMessages.forError(TtsError.SPEAK_FAILED),
+            vm.uiState.value.ttsMessage
+        )
+    }
+
+    @Test
+    fun `barge-in still settles the previous utterance whose id was cleared`() = runTest(dispatcher) {
+        // R1 (C2b) — PINS THE ID-LESS CONTRACT THAT WAS DELIBERATELY NOT TIGHTENED.
+        //
+        // A new command stops the current utterance and clears both ids before the
+        // new one is spoken. When the stopped utterance reports back it can carry
+        // NO id (TextToSpeechManager.stop() emits an id-less SpeakFinished), and
+        // that event must still be honoured: it is what settles the card when the
+        // engine is silenced on purpose. `isCurrentUtterance` therefore keeps its
+        // null-permissive branch. If someone "tightens" it, this test fails.
+        val vm = viewModel()
+
+        vm.say("volume up")
+        val stopped = tts.lastUtteranceId()
+        assertNotNull(stopped)
+        assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
+
+        // The second command barges in: it stops the first utterance and clears
+        // the ids before speaking its own reply.
+        nowMillis = 2_000L
+        vm.say("turn the volume down")
+        assertEquals("barge-in must stop the previous utterance", 1, tts.stopCount)
+        assertEquals(AssistantStatus.SPEAKING, vm.uiState.value.status)
+
+        // The stopped utterance's callback, with no id — as the real adapter emits.
+        tts.emit(TtsEvent.SpeakFinished())
+
+        assertEquals(
+            "the intentional stop must still settle the card",
+            AssistantStatus.SUCCESS,
+            vm.uiState.value.status
+        )
     }
 
     // D10 / D11 — a rejection is neutral, not green and not red.

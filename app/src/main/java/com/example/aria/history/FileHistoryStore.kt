@@ -12,6 +12,9 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * PHASE 12 — history in a plain JSON file in app-private storage.
@@ -31,11 +34,29 @@ import java.io.IOException
  * death, corrupt file recovers) is covered on a device.
  *
  * ── ATOMIC WRITE ────────────────────────────────────────────────────────────
- * The list is written to `history.json.tmp` and then renamed over `history.json`.
- * `File.renameTo` within one directory is atomic on the same filesystem, so a
- * process death mid-write leaves either the old complete file or the new complete
- * file — never a half-written one. Losing history because the phone was killed
- * while saving would be a poor trade for the two lines it costs.
+ * The list is written to `history.json.tmp` and then MOVED over `history.json`
+ * with `Files.move(..., REPLACE_EXISTING, ATOMIC_MOVE)`, so a process death
+ * mid-write leaves either the old complete file or the new complete file — never
+ * a half-written one, and never NO file at all.
+ *
+ * R1 (C3) — WHAT USED TO HAPPEN, AND WHY IT MATTERED. `File.renameTo` was tried
+ * first; when it failed the code did `target.delete()` and retried the rename. On
+ * this platform `renameTo` does NOT overwrite an existing target, so that
+ * delete-then-rename was the *normal* path, not an exotic one. The consequence:
+ * for the duration between the delete and the second rename there was no history
+ * file at all. Killing the app in that window — exactly what a cleanup, a crash or
+ * the user swiping the app away does — lost the whole history, including records
+ * that had been saved successfully for weeks. The old KDoc promised "either the
+ * old complete file or the new complete file", which that code could not deliver.
+ *
+ * THE GUARANTEE NOW, STATED HONESTLY: the target is never removed before the new
+ * content is in place. `ATOMIC_MOVE` replaces it in one step, so an interruption
+ * leaves the previous file intact. If the filesystem refuses `ATOMIC_MOVE` we
+ * retry with `REPLACE_EXISTING` alone, which still overwrites in place and never
+ * deletes first — weaker (a crash could theoretically interleave) but never
+ * destroys the old rows. That fallback is why `minSdk = 26` matters here:
+ * `java.nio.file` exists on every supported version, so this needs no dependency
+ * and no desugaring.
  *
  * ── NEVER THROWS ────────────────────────────────────────────────────────────
  * History is a convenience. Every failure path is caught and logged: a corrupt
@@ -99,21 +120,59 @@ class FileHistoryStore(
             // passing an already-usable File.
             target.parentFile?.mkdirs()
             temporary.writeText(array.toString())
-            // Rename over the real file. On failure, remove the temp so a later
-            // read cannot pick up a half-written file.
-            if (!temporary.renameTo(target)) {
-                target.delete()
-                if (!temporary.renameTo(target)) {
-                    Log.w(TAG, "Could not replace $FILE_NAME; history not saved.")
-                    temporary.delete()
-                }
-            }
+            // Move the finished temp file over the real one. NEVER delete the
+            // target first: that opened a window in which no history file existed.
+            // A leftover temp is removed, so the next load cannot pick up a
+            // half-written file (`clear()` also deletes it, belt and braces).
+            if (!moveIntoPlace(temporary, target)) temporary.delete()
         } catch (error: IOException) {
             Log.w(TAG, "Could not write $FILE_NAME; history not saved.", error)
             temporary.delete()
         }
         Unit
     }
+
+    /**
+     * R1 (C3) — puts [temporary] at [target], destroying the old content as part
+     * of the move rather than before it.
+     *
+     * Tries the atomic move first. `ATOMIC_MOVE` is allowed to ignore
+     * `REPLACE_EXISTING` on some filesystems, which surfaces as
+     * [AtomicMoveNotSupportedException]; that is the one case where it is retried
+     * with a plain replacing move. Anything else propagates to [save], which
+     * already treats a failed write as "history not saved" and cleans up the temp.
+     *
+     * Returns whether the new content is in place, so the caller can remove the
+     * temp file only when it is not.
+     */
+    private fun moveIntoPlace(temporary: File, target: File): Boolean =
+        try {
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+            true
+        } catch (notAtomic: AtomicMoveNotSupportedException) {
+            // Filesystem cannot do it atomically. Replace in place anyway — still
+            // without deleting the target up front, so the old rows survive a
+            // failure here.
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+                true
+            } catch (error: IOException) {
+                Log.w(TAG, "Could not replace $FILE_NAME; history not saved.", error)
+                false
+            }
+        } catch (error: IOException) {
+            Log.w(TAG, "Could not replace $FILE_NAME; history not saved.", error)
+            false
+        }
 
     override suspend fun clear() = withContext(ioDispatcher) {
         // Delete both, so a leftover temp from an interrupted save cannot be
