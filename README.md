@@ -126,8 +126,9 @@ guessed at on a phone.
   problem that needs `File.writeText`. See `docs/PHASE12.md` §1 — Room stays the V2 answer
   if history ever needs queries, filters or migrations.
 - **No network access at all.** There is no `INTERNET` permission in the manifest, so the
-  app *cannot* phone home even if a future edit tried. Recognition is the device's own
-  `SpeechRecognizer`.
+  app *cannot* phone home even if a future edit tried. Note the limit that does *not*
+  cover: recognition runs in the *system* speech service, which has its own permissions —
+  see [Privacy](#privacy).
 - **No LLM in V1.** Precision over recall: a rule-based parser that refuses honestly beats
   a model that guesses fluently. The `CommandParser` interface means adding one later is a
   new class, not a rewrite.
@@ -212,6 +213,18 @@ Instrumented tests need the same connected device:
 .\gradlew :app:connectedDebugAndroidTest      # 30 tests on the device
 ```
 
+### A note on the Maven mirrors in `settings.gradle.kts`
+
+That file lists **regional Maven mirrors** (Iranian and Chinese) ahead of `google()`,
+`mavenCentral()` and `gradlePluginPortal()`. They are there because the official hosts
+were unreachable from the author's network, and Gradle cannot fetch a plugin it cannot
+reach.
+
+If you clone this on a normal network and those mirrors are slow or dead, **you can
+delete the mirror block** — the official repositories are already last in both lists, so
+removing the mirrors leaves a working configuration. No dependency version lives in that
+file, so doing so cannot change what gets built.
+
 ### Try the parser without a microphone
 
 Turn on **debug mode** (settings gear → Debug mode) to reveal a text field. Typing a
@@ -244,9 +257,34 @@ on a device without saying anything out loud.
 
 ## Privacy
 
-On-device recognition, no audio retained, no network permission, no LLM, no analytics.
-Command history lives in a private JSON file that is **excluded from cloud backup and
-device transfer** — transcripts are the most private thing this app produces.
+**What ARIA itself does and does not do — all of it verifiable in this repo:**
+
+- **No audio is retained.** ARIA never writes a recording, keeps a buffer of samples, or
+  stores audio anywhere. There is no such code path.
+- **No `INTERNET` permission.** It is absent from `AndroidManifest.xml`, so ARIA cannot
+  make a network call even if a future edit tried to.
+- **No LLM, no analytics, no crash reporting.** Nothing added by this project talks to a
+  server.
+- **History stays local** — a private JSON file, **excluded from cloud backup and device
+  transfer**. Transcripts are the most private thing this app produces.
+
+**What ARIA does not control — the honest limit:**
+
+Speech recognition is performed by **Android's built-in `SpeechRecognizer`**, which ARIA
+binds to like any other app. That recogniser is a **separate system service in another
+app's process, with its own permissions and its own configuration**. Depending on your
+device and that service's settings, speech may be processed off-device. ARIA has no
+visibility into it and cannot prevent it.
+
+Nor is the offline path a guarantee: ARIA *can* pass `EXTRA_PREFER_OFFLINE`, and that
+extra is a **hint the platform is free to ignore** — and the flag defaults to `false`
+anyway, because devices without a downloaded offline model fail outright instead of
+falling back. So ARIA cannot claim on-device-only recognition today.
+
+> **In one line:** ARIA stores no audio and never sends anything, but the speech service
+> it hands audio to is the device's, not ARIA's — so "on-device recognition" would be a
+> promise this project cannot keep. Guaranteed on-device recognition is deferred to
+> V1.1; see `PROJECT_STATUS.md`.
 
 ## Licence
 

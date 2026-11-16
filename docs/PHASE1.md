@@ -174,8 +174,10 @@ viewModel.onMicrophoneTapped()   // → SpeechRecognizer → String → parser �
 2. `voice/SpeechRecognizerManager.kt` wrapping Android's `SpeechRecognizer`,
    exposed to the ViewModel as results/errors — no Android types leak into UI.
 3. Recognised text shown in the card ("You said …") and written to history.
-4. `QUERY_ALL_PACKAGES`-free, cloud-free: recognition uses the on-device
-   recogniser when available.
+4. `QUERY_ALL_PACKAGES`-free: recognition uses the platform's `SpeechRecognizer`.
+   *(R3-final correction: this line used to say "cloud-free … the on-device recogniser",
+   which overclaims — the platform recogniser is a separate service that may process
+   speech off-device. See `README.md` → Privacy.)*
 5. Still **no** command parsing — text stops at the UI, exactly like the diagram.
 
 I'll wait for your confirmation (and your Phase 1 test result) before starting.
