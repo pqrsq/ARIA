@@ -220,6 +220,16 @@ so typed and spoken commands cannot drift apart. This is also how the parser is 
 on a device without saying anything out loud.
 
 ---
+## Screenshots
+
+### Home
+![ARIA Home](docs/screenshots/home.jpg)
+
+### Successful command
+![ARIA Success](docs/screenshots/success.jpg)
+
+### Rejected command
+![ARIA Rejected](docs/screenshots/rejected.jpg)
 
 ## Documentation map
 
