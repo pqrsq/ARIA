@@ -42,7 +42,7 @@ note in `docs/PHASE*.md` refers to **B**. It does **not** mean the phase is unve
 | **Instrumented tests** | **30 / 30 PASSING** on the device — `./gradlew :app:connectedDebugAndroidTest` |
 | **Manual regression checklist A–F** | **PASSED** |
 | **R1 device checks** | **PASSED** — cold-start persistence · clear-during-load · rotation · barge-in |
-| **Date of last verification** | **2026-11-11** |
+| **Date of last verification** | **2026-11-16** |
 | **Merged state** | `master` at `0f33025` (R1, PR #21) |
 
 ### R1 device checks, item by item
