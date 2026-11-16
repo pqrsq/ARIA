@@ -201,11 +201,19 @@ need, through a small interface so the logic stays JVM-testable.
    access. **Phase 6 added no permission at all** — volume, ringer mode, media
    keys, maps and settings screens need none — and Do Not Disturb access stays a
    user-granted settings toggle that ARIA can only *report* as missing.
-9. **Speech is on-device first.** Recognition uses the phone's own
-   `SpeechRecognizer`; `EXTRA_PREFER_OFFLINE` is available as an opt-in flag
-   (`preferOfflineRecognition`) but defaults to `false`, because devices without a
-   downloaded offline model answer with an error instead of falling back. ARIA
-   stores no audio and sends none.
+9. **Speech goes through the platform recogniser — and ARIA does not control where
+   it runs.** Recognition uses `SpeechRecognizer.createSpeechRecognizer`, which binds to
+   whichever `RecognitionService` the platform selects: a **separate app's process with
+   its own permissions**. Audio may therefore be processed off-device, and ARIA cannot
+   prevent it. `EXTRA_PREFER_OFFLINE` is available as an opt-in flag
+   (`preferOfflineRecognition`) but is only a **hint** the platform may ignore, and it
+   defaults to `false` because devices without a downloaded offline model answer with an
+   error instead of falling back. What ARIA *can* guarantee: it stores no audio, sends
+   nothing itself, and holds no `INTERNET` permission. **R3-final correction:** this
+   point used to be titled "Speech is on-device first" and ended "stores no audio and
+   sends none", which reads as an on-device promise the code cannot keep. Guaranteed
+   on-device recognition (`createOnDeviceSpeechRecognizer` + availability check with
+   fallback) is deferred to V1.1.
 10. **One recogniser, owned by the `Application`.** `SpeechRecognizer` must be
     created once and reused; creating it per tap rebuilt the platform object on
     every recomposition. `AriaApplication` holds it, the factory injects it.

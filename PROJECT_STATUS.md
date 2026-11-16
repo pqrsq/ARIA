@@ -43,7 +43,7 @@ note in `docs/PHASE*.md` refers to **B**. It does **not** mean the phase is unve
 | **Manual regression checklist A–F** | **PASSED** |
 | **R1 device checks** | **PASSED** — cold-start persistence · clear-during-load · rotation · barge-in |
 | **Date of last verification** | **2026-11-16** |
-| **Merged state** | `master` at `799fec2` — R1 (PR #21) and R2 (PR #22) merged; R3a (this branch) is open and not merged |
+| **Merged state** | `master` at `ccb20c7` — R1 (PR #21), R2 (PR #22) and R3a (PR #23) merged; R3-final (this branch) is open and not merged |
 
 ### R1 device checks, item by item
 
@@ -54,6 +54,18 @@ note in `docs/PHASE*.md` refers to **B**. It does **not** mean the phase is unve
 3. **Rotation mid-session.** History intact.
 4. **Barge-in.** TTS unmuted → a command, then immediately another → the card is not
    repainted by the previous utterance's late callback.
+
+### A note for anyone cloning this repo
+
+`settings.gradle.kts` lists **regional Maven mirrors** (Iranian and Chinese) *before*
+`google()`, `mavenCentral()` and `gradlePluginPortal()`. This is not a preference: the
+official repositories were unreachable from the author's network, and Gradle cannot fetch
+a plugin it cannot see.
+
+If you are cloning this on a normal network and the mirrors are slow or unreachable, you
+may **replace the mirror block with `google()` and `mavenCentral()`** — they are already
+last in both lists, so deleting the mirrors leaves a working configuration. No dependency
+version lives in that file, so this cannot change what gets built.
 
 ### How to reproduce the verification
 
@@ -113,7 +125,7 @@ record. R3 is the release build.
 | R1 | Correctness: startup-race data loss, clear-during-load, stale TTS failure, non-atomic save. **Merged and device-verified** |
 | R2 | Documentation truth + version metadata `1.0.0`. **No behaviour change** |
 
-### NEXT — R3 → Release
+### NEXT — R3 → Release (presentation is finished; the release build is not)
 
 1. **R3: the release build.** Signing config, `assembleRelease`, R8/ProGuard check
    against the reflection-free Compose + `org.json` paths, and a final
@@ -128,10 +140,21 @@ record. R3 is the release build.
 Not forgotten, not defects. Each was a decision, and reversing one is a phase of its
 own:
 
-- **Better / offline speech recognition.** ARIA uses the phone's own
-  `SpeechRecognizer`; `EXTRA_PREFER_OFFLINE` exists as an opt-in flag
-  (`preferOfflineRecognition`) but defaults to `false`, because devices without a
-  downloaded model answer with an error instead of falling back.
+- **Guaranteed on-device recognition** (`createOnDeviceSpeechRecognizer` + an
+  availability check, with a documented fallback) — **V1.1**. Today the recogniser
+  service decides. ARIA calls `SpeechRecognizer.createSpeechRecognizer` — never
+  `createOnDeviceSpeechRecognizer` — so it binds to whichever `RecognitionService` the
+  platform selects, a **separate app's process with its own permissions**. Whether
+  audio leaves the device is that service's policy, not ARIA's, and `EXTRA_PREFER_OFFLINE`
+  (which ARIA only sends when `preferOfflineRecognition` is set, and which the platform
+  may ignore) is a hint rather than a guarantee. **Why this matters beyond privacy:** the
+  README and the on-screen subtitle previously promised on-device-only recognition. That
+  was an overclaim and has been corrected. Doing it properly is a behaviour change and
+  needs its own device testing, so it is deliberately not being smuggled into a text
+  phase.
+- **Better / offline speech recognition as a preference.** The `EXTRA_PREFER_OFFLINE`
+  flag exists (`preferOfflineRecognition`) but defaults to `false`, because devices
+  without a downloaded model answer with an error instead of falling back.
 - **Persian language support.** Recognition and every parser rule are English-only,
   and the TTS voice selection assumes en-US.
 - **Capability registry.** Today each handler independently discovers what the device

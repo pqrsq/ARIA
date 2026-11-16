@@ -4,8 +4,8 @@ This file does not list itself (its own hash would change once written).
 
 04e094d6ece30836  .gitignore
 e83ec606917052b1  LICENSE
-8efaae721d37bc43  PROJECT_STATUS.md
-9804ea95d1ab2db6  README.md
+2ae877834ab10edb  PROJECT_STATUS.md
+18fb878eece8244e  README.md
 851067b339afa402  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
 44e9a3e243fdf6eb  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
@@ -78,7 +78,7 @@ d6d31e17f0ea1392  app/src/main/java/com/example/aria/voice/TtsAcknowledgements.k
 d4f19b23650ff894  app/src/main/res/drawable/ic_launcher_foreground.xml
 cbce86e45ec544dd  app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 090b6470b32710dd  app/src/main/res/values/colors.xml
-4bf446505d8765d1  app/src/main/res/values/strings.xml
+5a228b9ce52381a5  app/src/main/res/values/strings.xml
 d18ad42dfba3f0a6  app/src/main/res/values/themes.xml
 3d6e915dcd29e616  app/src/main/res/xml/backup_rules.xml
 eab4b9aab9c081d1  app/src/main/res/xml/data_extraction_rules.xml
@@ -115,7 +115,7 @@ ee5c9b475836a6eb  app/src/test/java/com/example/aria/voice/FakeSpeechRecognizerM
 7086a30408bfd077  docs/PHASE-P1.6.md
 5f340544834ffeaf  docs/PHASE-P1.md
 8792d68a51f5ed57  docs/PHASE-R1.md
-5131030b2c713563  docs/PHASE1.md
+db81d596ce4108d3  docs/PHASE1.md
 0bae10f7dc95e13c  docs/PHASE12.md
 089f40b35ccb1460  docs/PHASE2.md
 086f367110e3da9f  docs/PHASE3.md
@@ -124,7 +124,7 @@ d3ed851b91ecd99e  docs/PHASE4.md
 08c9ee620b134ac4  docs/PHASE6-fixes.md
 3c9b7ba2ffc25124  docs/PHASE6.5.md
 960c69124c07c0cc  docs/PHASE6.md
-17d2f4422ebca7a7  docs/PROJECT_GUIDE.md
+069633e45951f05f  docs/PROJECT_GUIDE.md
 13e4c8a69c2152fc  docs/TROUBLESHOOTING.md
 87d2b0fb37979021  gradle.properties
 801c89f798f4a51c  gradle/libs.versions.toml
