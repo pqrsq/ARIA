@@ -43,7 +43,7 @@ note in `docs/PHASE*.md` refers to **B**. It does **not** mean the phase is unve
 | **Manual regression checklist A–F** | **PASSED** |
 | **R1 device checks** | **PASSED** — cold-start persistence · clear-during-load · rotation · barge-in |
 | **Date of last verification** | **2026-11-16** |
-| **Merged state** | `master` at `0f33025` (R1, PR #21) |
+| **Merged state** | `master` at `799fec2` — R1 (PR #21) and R2 (PR #22) merged; R3a (this branch) is open and not merged |
 
 ### R1 device checks, item by item
 
@@ -166,3 +166,7 @@ own:
   it is now recorded as exactly that.
 
 **Date of last verification: 2026-11-16.** Next update due: after R3.
+
+*(R3a: the table in §1 and this line disagreed — 2026-11-16 vs 2026-11-11. The owner
+corrected this line on `master` first; the two now agree, and the repo's own commit
+date confirms 2026-11-16 is the right one.)*
