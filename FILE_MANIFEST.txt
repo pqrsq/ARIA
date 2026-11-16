@@ -3,8 +3,9 @@ Verify your extracted copy contains every listed file.
 This file does not list itself (its own hash would change once written).
 
 04e094d6ece30836  .gitignore
-ddab21e1d0a55470  PROJECT_STATUS.md
-585aacab32518b8f  README.md
+e83ec606917052b1  LICENSE
+8efaae721d37bc43  PROJECT_STATUS.md
+9804ea95d1ab2db6  README.md
 851067b339afa402  app/build.gradle.kts
 fc976f80435446d7  app/proguard-rules.pro
 44e9a3e243fdf6eb  app/src/androidTest/java/com/example/aria/AssistantScreenTest.kt
