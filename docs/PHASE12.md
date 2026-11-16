@@ -3,10 +3,19 @@
 History was in-memory only and died with the process. This phase makes it survive a
 restart, and nothing else.
 
-> ⚠️ **Not executed.** No JDK, no Android SDK in the authoring sandbox, so nothing
-> here has been compiled or run. §6 has the commands. The wiring was verified by
-> reading the code and by replaying the load/save/clear state machine, including the
-> two races below (all assertions reproduced in §5).
+> ⚠️ **Not executed *in the authoring sandbox*.** No JDK and no Android SDK there, so
+> the agent could not compile or run anything. §6 has the commands.
+>
+> **This is not the same as "unverified".** The owner ran this on real hardware:
+> the unit suite and the instrumented suite passed, and the history device script in
+> §7 was walked through. See `PROJECT_STATUS.md` for exactly what was verified by
+> whom — that file, not this one, is the authority on status. The wording below is
+> deliberately about what the *agent* could not do.
+>
+> **R1 later corrected this phase's two race descriptions and its atomic-write
+> claim.** Both were wrong as written; §3, §4 and §9 of `docs/PHASE-R1.md` hold the
+> corrected account. Corrections are marked in place below rather than deleted, so
+> the record shows what the code actually did and why the claim was wrong.
 
 ---
 
@@ -62,10 +71,19 @@ The interface documents that `load` never throws and that `save` receives the
 ### `history/FileHistoryStore.kt` — the only Android code
 
 - JSON array via `org.json`, written to `filesDir/history.json`.
-- **Atomic write**: `history.json.tmp` then `renameTo`, which is atomic within a
-  directory, so a process death mid-save leaves the old complete file or the new
-  complete file, never a half-written one. A failed rename deletes the temp file so
-  a later load cannot pick it up.
+- **Atomic write**: `history.json.tmp` then renamed over `history.json`, so a
+  process death mid-save leaves the old complete file or the new complete file,
+  never a half-written one. A failed rename deletes the temp file so a later load
+  cannot pick it up.
+  > **CORRECTED BY R1.** This paragraph used to claim that a failed rename still
+  > left a complete file. It did not. `File.renameTo` does not overwrite on Android,
+  > so the old `if (!renameTo) { target.delete(); renameTo(...) }` fallback was the
+  > **normal** path for every save after the first, and it left a window in which no
+  > history file existed at all — a kill there lost everything. R1 replaced it with
+  > `Files.move(ATOMIC_MOVE, REPLACE_EXISTING)` (retrying without `ATOMIC_MOVE`),
+  > and the target is now never deleted before the new content is in place. The
+  > guarantee above is true *of the current code*; it was not true of this phase's
+  > code. See `docs/PHASE-R1.md` §5.
 - **Never throws**: missing file, empty file, malformed JSON, wrong root type, I/O
   error → empty list (and a `Log.w` so the loss can be explained). One undecodable
   row is dropped without discarding the other 199.
@@ -106,8 +124,15 @@ produces; auto-backup must not upload them without the user asking.
 
 **(a) An append during the initial load.** The load is asynchronous, so a command
 typed the instant the app opens can finish before it returns — and would then write a
-one-row list over the stored history. Every store access therefore takes one `Mutex`,
-so the load lands first and no write interleaves with it.
+one-row list over the stored history. The mitigation introduced here was one `Mutex`
+around every store access.
+  > **CORRECTED BY R1 — THE MUTEX ALONE DID NOT FIX THIS.** A mutex serialises
+  > *accesses*; it cannot order a save against a coroutine that has not asked for the
+  > lock yet. When the save won the race — the ordinary case for a command typed
+  > immediately after a cold start — it wrote the state's list without the stored
+  > rows, and the load's merge happened only in memory. The screen looked right while
+  > the file had been truncated. The real fix is that `persistHistory()` now **joins**
+  > the load job before taking the lock. See `docs/PHASE-R1.md` §2.
 
 **(b) Clear while the load is in flight.** Joining the load job is *not* enough: the
 load's own final step prepends the stored rows back into the state, so a clear that
@@ -145,8 +170,9 @@ That replay caught one real defect (4b) that reading the code had missed.
 ./gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
 ```
 
-**Not executed here.** Expected: **385** JVM unit tests (362 + 15 + 8) and **28**
-instrumented (14 + 14).
+**Not executed in the sandbox.** The figures below were the expectation at the time;
+the suite has since grown (**390** JVM and **30** instrumented after R1's T1-T6), so
+use `PROJECT_STATUS.md` for current counts, not this paragraph.
 
 ### JVM unit tests added
 

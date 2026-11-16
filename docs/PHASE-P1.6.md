@@ -8,8 +8,9 @@ the parser can be exercised deterministically.
 This is not a new feature and not a new command path. It is a **second input into
 the existing pipeline**.
 
-> ⚠️ **Not executed.** No JDK, no Android SDK in the authoring sandbox, so nothing
-> here has been compiled or run. §6 has the exact commands. Behaviour was verified
+> ⚠️ **Not executed by the authoring agent.** No JDK and no Android SDK in that
+> sandbox, so the agent compiled and ran nothing. §6 has the exact commands; the
+> owner ran them on hardware. Behaviour was verified
 > by reading the code and by replaying the ViewModel state machine (see §5).
 
 ---

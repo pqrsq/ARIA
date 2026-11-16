@@ -5,11 +5,14 @@ TTS paths. This round **verified each against the actual source first**, quoted 
 offending code, and fixed only what was real. Nothing else changed: no features, no
 dependencies, no parser/executor/UI edits.
 
-> ⚠️ **Not executed.** No JDK and no Android SDK in the authoring sandbox
-> (`JAVA_HOME` and `ANDROID_HOME` are both empty; `java` is not installed). **No
-> unit or instrumented test was run here.** §6 has the exact commands the owner must
-> run; the tests below were written to be deterministic by construction, not by
-> timing, but only a real run proves them.
+> ⚠️ **Not executed *in the authoring sandbox*.** No JDK and no Android SDK there
+> (`JAVA_HOME` and `ANDROID_HOME` were both empty; `java` was not installed), so the
+> agent ran no unit or instrumented test.
+>
+> **The owner did run them, on hardware, and they pass.** This phase is merged and
+> device-verified: the four checks in §7 passed on a Samsung SM-A566B. Read
+> `PROJECT_STATUS.md` for the authoritative record; do not read the warning above as
+> "nothing was ever verified" — that misreading is exactly what R2 exists to end.
 
 ---
 
@@ -261,9 +264,20 @@ justified by the code path, and T1/T2 cover the ordering that *is* observable.
 .\gradlew :app:connectedDebugAndroidTest
 ```
 
-Five JVM tests were added (T1–T5), so the arithmetic from the Phase 12 figure of 385 is
-**390** — but that is arithmetic over the source, not a run. *Do not treat it as a
-result.*
+Five JVM tests and two instrumented tests were added: **390** JVM and **30**
+instrumented, which the owner confirmed green on the device. See `PROJECT_STATUS.md`.
+
+### Runs, recorded (R2)
+
+Filled in after the fact, because this section was written before the owner ran
+anything and §6 above says "not executed" in the agent's voice:
+
+| When | What | Result |
+|---|---|---|
+| R1, by the owner | `:app:testDebugUnitTest --rerun-tasks` | **390/390 pass** |
+| R1, by the owner | `:app:connectedDebugAndroidTest` on SM-A566B / Android 17 | **30/30 pass** |
+| R1, by the owner | §7 device checks 1–4 | **pass** — cold-start persistence, clear-during-load, rotation, barge-in |
+| R2 | the two commands after the version bump | **not yet run** — R2 changes no behaviour. The version bump touches one string and one Gradle field; the footer check is a device look, not a test run |
 
 ---
 

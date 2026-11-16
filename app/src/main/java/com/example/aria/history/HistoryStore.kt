@@ -26,6 +26,20 @@ import com.example.aria.ui.CommandRecord
  *  - [clear] leaves no history behind. It is separate from `save(emptyList())`
  *    so that "the user asked for this" is distinguishable at the call site and in
  *    the adapter's own tests.
+ *
+ * ── WHAT THIS CONTRACT CANNOT GIVE YOU (R2) ────────────────────────────────
+ * The guarantees above are about *a single call*. They are not a promise that a
+ * `load()` already in flight will agree with a `clear()` that lands while it is
+ * suspended: the load has read the rows before the clear happened, and will return
+ * them. No interface can fix that; only the caller knows whether the result is still
+ * wanted. `AssistantViewModel` therefore keeps a generation counter and discards a
+ * load or save whose request predates a clear. If you add another caller, it owes
+ * the same check — a store cannot enforce ordering it cannot see.
+ *
+ * Likewise, "save never throws" is a promise about the *outcome* (history is not
+ * saved), not about atomicity: the file-level triple of "old content, new content,
+ * or nothing" is the adapter's business, and `FileHistoryStore` documents exactly
+ * which of those it can produce on each path.
  */
 interface HistoryStore {
 

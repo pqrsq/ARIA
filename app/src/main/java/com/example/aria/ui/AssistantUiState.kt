@@ -126,7 +126,10 @@ data class AssistantUiState(
     val isPermissionBlocked: Boolean = false,
     /**
      * PHASE 3: the user's preference — may ARIA speak its replies?
-     * Defaults to true; Phase 12 will persist it. Toggled from the settings sheet.
+     * Defaults to true and is still NOT persisted — Phase 12 persisted the
+     * history only, so the mute preference resets on every launch. Toggled from
+     * the settings sheet. R2 correction: this comment used to claim "Phase 12
+     * will persist it", which Phase 12 as scoped never did.
      */
     val ttsEnabled: Boolean = true,
     /**

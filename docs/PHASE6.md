@@ -309,12 +309,19 @@ real defects were found and fixed this way, including a shared-scheduler mistake
 in the new ViewModel test and an expected-value error in a volume test
 (7/15 is 47%, not 46%).
 
-Still unverified:
+Still unverified **at the time this section was written** (all four have since been
+run by the owner, several times, with the results in `PROJECT_STATUS.md`):
 
-- `:app:assembleDebug` — **not run**
-- `:app:testDebugUnitTest` — **not run**; 257 methods expected (125 + 132)
-- `:app:assembleDebugAndroidTest` — **not run** (never has been, in any phase)
-- Any behaviour on a real device — **not run**
+- `:app:assembleDebug` — **not run (by the agent)**
+- `:app:testDebugUnitTest` — **not run (by the agent)**; 257 methods expected
+- `:app:assembleDebugAndroidTest` — **not run (by the agent)**
+- Any behaviour on a real device — **not run (by the agent)**
+
+> **R2 note:** the last item used to read "never has been, in any phase". That was
+> true only of the agent's environment, and reading it as a statement about the
+> project is what made an external reviewer conclude that device testing had never
+> happened. It has: every merged phase after Phase 1 was verified by the owner on a
+> Samsung SM-A566B. `PROJECT_STATUS.md` separates the two records.
 
 Run these before believing any of this:
 

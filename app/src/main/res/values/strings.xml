@@ -35,7 +35,7 @@
     <string name="open_permission_settings">Open settings</string>
 
     <!-- Footer -->
-    <string name="version_footer">Version 1 · Phase 3 of 16 — speech in and out</string>
+    <string name="version_footer">Version 1.0.0</string>
 
     <!-- Phase 3: speech output -->
     <string name="speaking">Speaking…</string>

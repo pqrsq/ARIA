@@ -27,8 +27,11 @@ import java.util.Locale
 /**
  * Lightweight local history list.
  *
- * Phase 12 will feed this from a repository backed by DataStore/Room; the
- * composable only needs a List<CommandRecord>, so the storage choice stays free.
+ * As of Phase 12 this is fed from the persisted history (`history/HistoryStore`,
+ * JSON in `filesDir`) via `AssistantUiState.history`. The composable itself only
+ * needs a List<CommandRecord>, which is what kept the storage choice free — the
+ * plan mentioned here was DataStore/Room, and the decision went to a plain file.
+ * R2 correction: this comment used to say Phase 12 "will" feed it.
  */
 @Composable
 fun HistoryList(

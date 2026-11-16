@@ -8,9 +8,9 @@ restructuring of the rule chain**.
 
 Guiding principle unchanged: **reliability > features, precision over recall.**
 
-> ⚠️ **Not executed.** The sandbox has no JDK, no Android SDK and no route to
-> Google's Maven repository, so nothing here has been compiled or run. The exact
-> commands are in §6. Verification of the expected outcomes was done by reading the
+> ⚠️ **Not executed by the authoring agent.** The sandbox had no JDK, no Android SDK
+> and no route to Google's Maven repository, so the agent compiled and ran nothing.
+> The exact commands are in §6; the owner ran them on hardware. Verification of the expected outcomes was done by reading the
 > code and by replaying every listed utterance against a model of the rule chain
 > (77/77 expectations matched) — that is not the same as a green build.
 
