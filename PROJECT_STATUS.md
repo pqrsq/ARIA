@@ -43,7 +43,7 @@ note in `docs/PHASE*.md` refers to **B**. It does **not** mean the phase is unve
 | **Manual regression checklist A–F** | **PASSED** |
 | **R1 device checks** | **PASSED** — cold-start persistence · clear-during-load · rotation · barge-in |
 | **Date of last verification** | **2026-11-16** |
-| **Merged state** | `master` at `ccb20c7` — R1 (PR #21), R2 (PR #22) and R3a (PR #23) merged; R3-final (this branch) is open and not merged |
+| **Merged state** | master — all phases through R3-final merged (see tag v1.0.0) |
 
 ### R1 device checks, item by item
 
@@ -193,3 +193,16 @@ own:
 *(R3a: the table in §1 and this line disagreed — 2026-11-16 vs 2026-11-11. The owner
 corrected this line on `master` first; the two now agree, and the repo's own commit
 date confirms 2026-11-16 is the right one.)*
+
+
+---
+
+## RELEASED — v1.0.0
+
+- **Date:** 2026-11-19
+- **Artifact:** signed release APK (`app-release.apk`) — versionName 1.0.0, versionCode 1
+- **Reference:** git tag `v1.0.0`
+- **Installed and smoke-tested on:** Samsung SM-A566B, Android 17
+- **Known limitation:** speech recognition uses the device's own recogniser.
+  Accuracy is currently poor on the test device. Guaranteed on-device
+  recognition is planned for v1.1.
