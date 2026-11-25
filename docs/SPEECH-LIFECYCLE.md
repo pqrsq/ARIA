@@ -87,6 +87,54 @@ failure to investigate.
 
 ---
 
+## Phase 1B — two extra lines (experiments (a) and (b))
+
+The Phase 1A trace proved the loss happens **before** ARIA sees it (the FINAL was never
+worse than the best PARTIAL, and ARIA never cancelled a session). It could not say
+*where* upstream. Two lines settle that.
+
+### `ALTERNATIVES` — experiment (a): did the service hear the whole phrase?
+
+```
+ARIA_STT | session=7 | ALTERNATIVES | n=1 | #0 "play face off" conf=n/a
+ARIA_STT | session=7 | ALTERNATIVES | n=3 | #0 "play" conf=0.81 ; #1 "play face" conf=0.62 ; #2 "play face off" conf=0.44
+```
+
+ARIA asks for `EXTRA_MAX_RESULTS = 1` and reads index 0 only. This line prints **every**
+hypothesis the service returned, plus its confidence.
+
+| What you see | What it means |
+|---|---|
+| `n=1` and `#0` is the full phrase | nothing was lost — you spoke a different thing, or this attempt was fine |
+| `n>1`, a later hypothesis is the FULL phrase | the words **were** decoded; only ranking lost them → `EXTRA_MAX_RESULTS` is a real lever |
+| `n=1`…`n>1` but **every** hypothesis is truncated | the words were never decoded → acoustic / endpointing, not scoring |
+| `n=0` | the service produced nothing at all (the NO_MATCH case) |
+| `conf=n/a` | this service supplies no scores. A *different* finding from a low score |
+
+### `ENDPOINT_CONFIG` — experiment (b): what did the endpointer think it was doing?
+
+```
+ARIA_STT | session=7 | ENDPOINT_CONFIG | at=RESULTS | complete_silence=800ms | possibly_complete_silence=1500ms | minimum_length=2000ms | segmented_session=false | prefer_offline=true
+```
+
+Printed **twice** per session — `at=END_OF_SPEECH` and `at=RESULTS` — because services
+disagree about where they attach these extras. `n/a` means the service did not supply
+that key at all, which is itself information.
+
+The two sessions to compare are the ones that reported only **170 ms** and **245 ms**
+between `BEGINNING_OF_SPEECH` and `END_OF_SPEECH`:
+
+- Short `complete_silence` / `minimum_length` → the endpointer is closing utterances
+  around a fragment. Remedy is a configuration value.
+- Normal values, or all `n/a` → endpointing is not the explanation, and the acoustics
+  are the place to look.
+
+### What is still deliberately absent
+
+`onRmsChanged` energy logging (experiment (c)) is **not** implemented. It is only needed
+if (a) and (b) both come back inconclusive. It is also the one experiment with a privacy
+question attached, so it should not be added before it is needed.
+
 ## Why the trace only appears in a debuggable build
 
 Transcripts are the most private data this app produces, and ARIA's privacy contract says
@@ -116,6 +164,14 @@ Logcat.
 - No merging of partials, no longest-partial substitution, no altering of the final text.
 
 ---
+
+## What to send back (Phase 1B)
+
+Same as before, plus for each session:
+
+1. the `ALTERNATIVES` count `n=` and whether any hypothesis is the full phrase;
+2. the `ENDPOINT_CONFIG` values — even if they are all `n/a`, that is the answer;
+3. which sessions were failures, so the three can be lined up.
 
 ## What to send back
 

@@ -342,6 +342,11 @@ class AndroidSpeechRecognizerManager(
 
         override fun onEndOfSpeech() {
             logLifecycle("END_OF_SPEECH")
+            // PHASE 1B — EXPERIMENT (b): ask the service what its endpointing was.
+            // The extras are documented as being returned in the results bundle,
+            // but services vary; reading them here as well costs one line and
+            // catches the ones that only attach them at end-of-speech.
+            logEndpointConfig("END_OF_SPEECH", null)
             mutableEvents.tryEmit(SpeechEvent.EndOfSpeech)
         }
 
@@ -370,6 +375,22 @@ class AndroidSpeechRecognizerManager(
             // result is logged explicitly rather than passed over in silence:
             // "the service returned nothing" is a finding, not a non-event.
             val text = results.firstTranscript().orEmpty()
+
+            // PHASE 1B — EXPERIMENT (a): "did the service hear the whole phrase
+            // and we only kept the top hypothesis?"
+            //
+            // ARIA asks for EXTRA_MAX_RESULTS = 1 and reads index 0 only. If the
+            // service put the full sentence in hypotheses 2..N, the loss is in
+            // SCORING, and that would be an ARIA-side lever. If every hypothesis
+            // is equally truncated, the words were never decoded at all and the
+            // lever is acoustic/endpointing instead. This line is the whole
+            // experiment — it observes, it does not change what is emitted.
+            logHypotheses(results)
+
+            // PHASE 1B — EXPERIMENT (b): the endpointing configuration the service
+            // actually used for this session, as opposed to the one it defaults to.
+            logEndpointConfig("RESULTS", results)
+
             logLifecycle(
                 "FINAL",
                 transcript = text,
@@ -436,6 +457,96 @@ class AndroidSpeechRecognizerManager(
             if (detail != null) append(" | ").append(detail)
         }
         Log.d(TAG_STT, line)
+    }
+
+    /**
+     * PHASE 1B — EXPERIMENT (a): every hypothesis the service returned, plus its
+     * confidence when the service supplies one.
+     *
+     * WHY THIS IS LOGGING AND NOT A FIX: ARIA requests `EXTRA_MAX_RESULTS = 1`, so
+     * the platform may legitimately return a single candidate. This line answers a
+     * question ARIA cannot answer by reasoning — *was the full phrase in the
+     * bundle and only de-ranked, or was it never decoded?* Nothing here changes
+     * which hypothesis is used; index 0 remains the only one ever emitted.
+     *
+     * "no score" is distinct from a LOW score, so it is printed as `conf=n/a`
+     * rather than hidden behind a default of 0.0 — the two lead to different
+     * conclusions about how much the ranking can be trusted.
+     */
+    private fun logHypotheses(results: Bundle?) {
+        if (!diagnosticsEnabled) return
+        val alternatives = results
+            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            ?.map { it.trim() }
+            ?: emptyList()
+        // EXTRA_CONFIDENCE_SCORES is documented as a float[], but Bundle.get()
+        // returns the raw object and a third-party RecognitionService may put an
+        // ArrayList<Float> there instead. One read plus a type check covers both
+        // without guessing at key order; anything else is treated as "no scores".
+        // NOTE: SpeechRecognizer.EXTRA_CONFIDENCE_SCORES and RecognizerIntent's are
+        // the same string, so a single lookup is enough — asking twice would be
+        // redundant, not safer.
+        val rawScores = results?.get(SpeechRecognizer.EXTRA_CONFIDENCE_SCORES)
+        val scores: List<Float> = when (rawScores) {
+            is FloatArray -> rawScores.toList()
+            is List<*> -> rawScores.mapNotNull { (it as? Number)?.toFloat() }
+            else -> emptyList()
+        }
+
+        val rendered = if (alternatives.isEmpty()) {
+            "none"
+        } else {
+            alternatives.withIndex().joinToString(" ; ") { (index, text) ->
+                // -1 (or anything negative) is the platform sentinel for
+                // "no score given", not a confidence of minus one.
+                val raw = scores.getOrNull(index)
+                val score = if (raw == null || raw < 0f) {
+                    " conf=n/a"
+                } else {
+                    // Locale.US on purpose: a device locale that renders
+                    // digits differently must not produce a log line that
+                    // cannot be parsed back. Diagnostic, not user-facing text.
+                    " conf=" + String.format(Locale.US, "%.2f", raw)
+                }
+                "#$index \"$text\"$score"
+            }
+        }
+        Log.d(TAG_STT, "session=$currentSession | ALTERNATIVES | n=${alternatives.size} | $rendered")
+    }
+
+    /**
+     * PHASE 1B — EXPERIMENT (b): reports the endpointing values carried by the
+     * service, if it carries any.
+     *
+     * WHY IT MATTERS: in the Phase 1A trace two sessions reported only 170 ms and
+     * 245 ms between BEGINNING_OF_SPEECH and END_OF_SPEECH — far shorter than the
+     * utterance. If the service's *complete*-silence length or minimum-length
+     * config is small, the endpointer is closing the utterance around a fragment,
+     * and the remedy is a configuration value. If those extras are absent (or
+     * report normal values), endpointing is not the cause and we look at acoustics.
+     *
+     * "n/a" is printed per key on purpose. A missing extra and an extra that says
+     * 800 are opposite findings, and a silently-skipped key would hide that.
+     */
+    private fun logEndpointConfig(stage: String, results: Bundle?) {
+        if (!diagnosticsEnabled) return
+        fun value(key: String): String {
+            val raw = results?.get(key) ?: return "n/a"
+            return when (raw) {
+                is Long -> "${raw}ms"
+                is Int -> "${raw}ms"
+                is Boolean -> raw.toString()
+                else -> raw.toString()
+            }
+        }
+        val parts = listOf(
+            "complete_silence=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)}",
+            "possibly_complete_silence=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS)}",
+            "minimum_length=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)}",
+            "segmented_session=${value(SpeechRecognizer.EXTRA_SEGMENTED_SESSION)}",
+            "prefer_offline=${value(RecognizerIntent.EXTRA_PREFER_OFFLINE)}"
+        )
+        Log.d(TAG_STT, "session=$currentSession | ENDPOINT_CONFIG | at=$stage | " + parts.joinToString(" | "))
     }
 
     private fun runOnMain(block: () -> Unit) {
