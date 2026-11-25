@@ -479,14 +479,18 @@ class AndroidSpeechRecognizerManager(
             ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             ?.map { it.trim() }
             ?: emptyList()
-        // EXTRA_CONFIDENCE_SCORES is documented as a float[], but Bundle.get()
-        // returns the raw object and a third-party RecognitionService may put an
-        // ArrayList<Float> there instead. One read plus a type check covers both
-        // without guessing at key order; anything else is treated as "no scores".
-        // NOTE: SpeechRecognizer.EXTRA_CONFIDENCE_SCORES and RecognizerIntent's are
-        // the same string, so a single lookup is enough — asking twice would be
-        // redundant, not safer.
-        val rawScores = results?.get(SpeechRecognizer.EXTRA_CONFIDENCE_SCORES)
+        // THE KEY IS SpeechRecognizer.CONFIDENCE_SCORES ("confidence_scores") AND NOT
+        // RecognizerIntent.EXTRA_CONFIDENCE_SCORES ("android.speech.extra.
+        // CONFIDENCE_SCORES"). They are two different strings: the EXTRA_ variant is
+        // what a recogniser reads on the way IN, so looking it up in the RESULTS
+        // bundle would return null every time and "conf=n/a" would print for every
+        // session regardless of whether scores existed — a silent false negative.
+        // This exact mistake is what broke the first build of this experiment.
+        //
+        // The value is documented as a float[], but Bundle.get() returns the raw
+        // object and a third-party RecognitionService may put a List<Float> there.
+        // One read plus a type check covers both; anything else means "no scores".
+        val rawScores = results?.get(SpeechRecognizer.CONFIDENCE_SCORES)
         val scores: List<Float> = when (rawScores) {
             is FloatArray -> rawScores.toList()
             is List<*> -> rawScores.mapNotNull { (it as? Number)?.toFloat() }
@@ -540,10 +544,10 @@ class AndroidSpeechRecognizerManager(
             }
         }
         val parts = listOf(
-            "complete_silence=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)}",
-            "possibly_complete_silence=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS)}",
-            "minimum_length=${value(SpeechRecognizer.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)}",
-            "segmented_session=${value(SpeechRecognizer.EXTRA_SEGMENTED_SESSION)}",
+            "complete_silence=${value(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)}",
+            "possibly_complete_silence=${value(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS)}",
+            "minimum_length=${value(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)}",
+            "segmented_session=${value(RecognizerIntent.EXTRA_SEGMENTED_SESSION)}",
             "prefer_offline=${value(RecognizerIntent.EXTRA_PREFER_OFFLINE)}"
         )
         Log.d(TAG_STT, "session=$currentSession | ENDPOINT_CONFIG | at=$stage | " + parts.joinToString(" | "))

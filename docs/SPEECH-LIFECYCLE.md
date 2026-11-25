@@ -111,6 +111,13 @@ hypothesis the service returned, plus its confidence.
 | `n=0` | the service produced nothing at all (the NO_MATCH case) |
 | `conf=n/a` | this service supplies no scores. A *different* finding from a low score |
 
+Confidences are read from `SpeechRecognizer.CONFIDENCE_SCORES` (`"confidence_scores"`) —
+**not** `RecognizerIntent.EXTRA_CONFIDENCE_SCORES` (`"android.speech.extra.CONFIDENCE_SCORES"`).
+Those are two different strings: the `EXTRA_` one is an *input* key a recogniser reads, so
+looking it up in the results bundle returns null forever and every session would print
+`conf=n/a` whether or not scores existed. Getting this backwards would not crash — it
+would quietly fabricate the "no scores" finding.
+
 ### `ENDPOINT_CONFIG` — experiment (b): what did the endpointer think it was doing?
 
 ```

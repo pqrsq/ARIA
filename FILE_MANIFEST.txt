@@ -71,7 +71,7 @@ b59b960480998b9b  app/src/main/java/com/example/aria/ui/components/MicrophoneBut
 7ca9aef4e24fbf1e  app/src/main/java/com/example/aria/ui/theme/Theme.kt
 3d593cba8174d455  app/src/main/java/com/example/aria/ui/theme/Type.kt
 6cccb80dc5b3f4e6  app/src/main/java/com/example/aria/voice/SpeechMessages.kt
-5914369301ebff6a  app/src/main/java/com/example/aria/voice/SpeechRecognizerManager.kt
+fd3368c9b52d1e4e  app/src/main/java/com/example/aria/voice/SpeechRecognizerManager.kt
 c8739734b2e9c939  app/src/main/java/com/example/aria/voice/TextToSpeechManager.kt
 d6d31e17f0ea1392  app/src/main/java/com/example/aria/voice/TtsAcknowledgements.kt
 7793a1602256fab3  app/src/main/java/com/example/aria/voice/TtsMessages.kt
@@ -125,7 +125,7 @@ d3ed851b91ecd99e  docs/PHASE4.md
 3c9b7ba2ffc25124  docs/PHASE6.5.md
 960c69124c07c0cc  docs/PHASE6.md
 069633e45951f05f  docs/PROJECT_GUIDE.md
-79fa3f12d232a412  docs/SPEECH-LIFECYCLE.md
+a4ef087b9c73ea53  docs/SPEECH-LIFECYCLE.md
 13e4c8a69c2152fc  docs/TROUBLESHOOTING.md
 87d2b0fb37979021  gradle.properties
 801c89f798f4a51c  gradle/libs.versions.toml
