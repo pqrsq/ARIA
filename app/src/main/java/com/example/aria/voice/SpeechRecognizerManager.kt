@@ -3,6 +3,7 @@ package com.example.aria.voice
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -189,6 +190,191 @@ class AndroidSpeechRecognizerManager(
     /** [SystemClock.elapsedRealtime] captured immediately before startListening. */
     private var sessionStartElapsed = 0L
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // V1.1 PHASE 1C — SCALAR AUDIO-LEVEL STATISTICS (OBSERVATION ONLY)
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // WHY: the physical test split the failure by microphone — a Bluetooth headset
+    // recognised 5/5, the phone's own microphone 1/5, with TTS off. That makes the
+    // audio-input path the suspect. Every earlier trace could not separate two very
+    // different upstream causes, because a truncated utterance and an utterance
+    // that was never captured look identical from transcript callbacks alone.
+    //
+    // These statistics separate them. The one number that matters is the delta
+    // between the level before speech starts and the level during it:
+    //   - speech clearly above the pre-speech floor  -> audio ARRIVED; any loss is
+    //     a boundary/decoding decision, and endpoint extras are the right lever;
+    //   - no rise at all, or a flat near-silent trace -> the recogniser never
+    //     received usable audio, and NO endpoint setting can fix that.
+    //
+    // WHY IT IS PRIVACY-SAFE: only scalars are kept — count, min, max, mean and a
+    // few last values. No sample is stored, no buffer is copied, nothing is written
+    // to disk or sent anywhere. `onBufferReceived` still discards every byte.
+    //
+    // WHY IT IS CHEAP: `onRmsChanged` fires many times a second on the main thread,
+    // so the accumulator is allocation-free after construction and O(1) per call.
+    // Nothing is formatted until the session ends.
+
+    /** Level statistics for one recognition session. Reset, never re-allocated. */
+    private class RmsTrace {
+
+        /** How many recent values are kept so "around an event" means a window. */
+        private val recent = FloatArray(RECENT_WINDOW)
+        private var recentIndex = 0
+        private var recentFilled = 0
+
+        var count = 0
+            private set
+        var minD = Float.MAX_VALUE
+            private set
+        var maxD = -Float.MAX_VALUE
+            private set
+        private var sum = 0.0
+
+        /** Last value seen, or null if the service never reported one. */
+        var last: Float? = null
+            private set
+
+        // Before BEGINNING_OF_SPEECH.
+        private var preCount = 0
+        private var preSum = 0.0
+        private var preMax = -Float.MAX_VALUE
+
+        // Between BEGINNING_OF_SPEECH and END_OF_SPEECH (or session end).
+        private var duringCount = 0
+        private var duringSum = 0.0
+        private var duringMax = -Float.MAX_VALUE
+
+        // After END_OF_SPEECH.
+        private var afterEndCount = 0
+        private var afterEndSum = 0.0
+        private var afterEndMax = -Float.MAX_VALUE
+
+        var beginBefore: Float? = null
+            private set
+        var beginRecentMax: Float? = null
+            private set
+        var beginAfter: Float? = null
+            private set
+        var endBefore: Float? = null
+            private set
+        var endRecentMax: Float? = null
+            private set
+
+        var beginCount = 0
+            private set
+        var endCount = 0
+            private set
+
+        private var began = false
+        private var ended = false
+        private var awaitingFirstAfterBegin = false
+
+        fun reset() {
+            recentIndex = 0
+            recentFilled = 0
+            count = 0
+            minD = Float.MAX_VALUE
+            maxD = -Float.MAX_VALUE
+            sum = 0.0
+            last = null
+            preCount = 0; preSum = 0.0; preMax = -Float.MAX_VALUE
+            duringCount = 0; duringSum = 0.0; duringMax = -Float.MAX_VALUE
+            afterEndCount = 0; afterEndSum = 0.0; afterEndMax = -Float.MAX_VALUE
+            beginBefore = null; beginRecentMax = null; beginAfter = null
+            endBefore = null; endRecentMax = null
+            beginCount = 0; endCount = 0
+            began = false; ended = false; awaitingFirstAfterBegin = false
+        }
+
+        fun onValue(value: Float) {
+            count++
+            if (value < minD) minD = value
+            if (value > maxD) maxD = value
+            sum += value
+            last = value
+
+            recent[recentIndex] = value
+            recentIndex = (recentIndex + 1) % RECENT_WINDOW
+            if (recentFilled < RECENT_WINDOW) recentFilled++
+
+            when {
+                awaitingFirstAfterBegin -> { beginAfter = value; awaitingFirstAfterBegin = false }
+                ended -> { afterEndCount++; afterEndSum += value; if (value > afterEndMax) afterEndMax = value }
+                began -> { duringCount++; duringSum += value; if (value > duringMax) duringMax = value }
+                else -> { preCount++; preSum += value; if (value > preMax) preMax = value }
+            }
+        }
+
+        /** Max of the last few values, i.e. the level in the moments just before now. */
+        private fun recentMax(): Float? =
+            if (recentFilled == 0) null else (0 until recentFilled).maxOf { recent[it] }
+
+        fun markBegin() {
+            beginCount++
+            if (began) return // a second BEGIN on the same session: counted, not re-based
+            began = true
+            beginBefore = last
+            beginRecentMax = recentMax()
+            awaitingFirstAfterBegin = true
+        }
+
+        fun markEnd() {
+            endCount++
+            if (ended) return
+            ended = true
+            endBefore = last
+            endRecentMax = recentMax()
+            awaitingFirstAfterBegin = false
+        }
+
+        /**
+         * The single diagnostic number: how far the speech level rose above the
+         * pre-speech floor. Null when either side has no samples — which is itself
+         * meaningful, because it means one of the two phases produced no values.
+         */
+        fun levelRise(): Float? {
+            if (preCount == 0 || duringCount == 0) return null
+            return (duringSum / duringCount).toFloat() - (preSum / preCount).toFloat()
+        }
+
+        private fun mean(sum: Double, n: Int): Float? = if (n == 0) null else (sum / n).toFloat()
+
+        fun format(): String {
+            fun f(v: Float?): String = if (v == null) "n/a" else String.format(Locale.US, "%.1f", v)
+            val s = StringBuilder()
+            s.append("n=").append(count)
+            s.append(" | min=").append(f(if (count == 0) null else minD))
+            s.append(" | max=").append(f(if (count == 0) null else maxD))
+            s.append(" | mean=").append(f(mean(sum, count)))
+            s.append(" | begin#=").append(beginCount).append(" end#=").append(endCount)
+            s.append(" | pre(n=").append(preCount)
+            s.append(" mean=").append(f(mean(preSum, preCount)))
+            s.append(" max=").append(f(if (preCount == 0) null else preMax)).append(")")
+            s.append(" | atBegin(before=").append(f(beginBefore))
+            s.append(" recentMax=").append(f(beginRecentMax))
+            s.append(" after=").append(f(beginAfter)).append(")")
+            s.append(" | during(n=").append(duringCount)
+            s.append(" mean=").append(f(mean(duringSum, duringCount)))
+            s.append(" max=").append(f(if (duringCount == 0) null else duringMax)).append(")")
+            s.append(" | RISE=").append(f(levelRise()))
+            s.append(" | atEnd(before=").append(f(endBefore))
+            s.append(" recentMax=").append(f(endRecentMax)).append(")")
+            s.append(" | afterEnd(n=").append(afterEndCount)
+            s.append(" mean=").append(f(mean(afterEndSum, afterEndCount)))
+            s.append(" max=").append(f(if (afterEndCount == 0) null else afterEndMax)).append(")")
+            return s.toString()
+        }
+
+        private companion object {
+            /** ~200-400 ms of callbacks at the service's usual reporting rate. */
+            const val RECENT_WINDOW = 8
+        }
+    }
+
+    /** Reused across sessions: one instance, reset at each START_LISTENING. */
+    private val rmsTrace = RmsTrace()
+
     // tryEmit from callbacks, buffered so a slow collector can never block the
     // recogniser; dropping the oldest partial is harmless.
     private val mutableEvents = MutableSharedFlow<SpeechEvent>(
@@ -232,7 +418,17 @@ class AndroidSpeechRecognizerManager(
                 sessionCounter++
                 currentSession = sessionCounter
                 sessionStartElapsed = SystemClock.elapsedRealtime()
+                // PHASE 1C: a new session gets a clean level accumulator. Done here,
+                // before startListening(), so no value from a previous session can
+                // bleed into this one's statistics.
+                rmsTrace.reset()
                 logLifecycle("START_LISTENING")
+                // PHASE 1C: which device the system believes is capturing right now.
+                // Needed to VALIDATE the Bluetooth experiment: a connected headset
+                // does not prove the recogniser is using its microphone rather than
+                // merely routing audio output, so the comparison is only sound if
+                // the route is recorded alongside the levels.
+                logInputRoute()
             }
 
             try {
@@ -329,11 +525,19 @@ class AndroidSpeechRecognizerManager(
             // and adding it to the public vocabulary would be a contract change
             // for a logging phase.
             logLifecycle("BEGINNING_OF_SPEECH")
+            if (diagnosticsEnabled) rmsTrace.markBegin()
         }
 
         override fun onRmsChanged(rmsdB: Float) {
-            // Deliberately ignored: Version 1 has no audio level meter. Adding
-            // one is a UI decision for Phase 15, not a speech concern.
+            // VERSION 1 BEHAVIOUR IS UNCHANGED: no audio level meter, nothing shown
+            // to the user, nothing emitted as a SpeechEvent. Adding a meter is a UI
+            // decision for Phase 15, not a speech concern.
+            //
+            // PHASE 1C: the single scalar is folded into the session accumulator.
+            // It is NOT logged here — this callback fires many times a second and a
+            // line per call would flood Logcat and alter the timing of the very
+            // session being measured. One summary line is emitted at session end.
+            if (diagnosticsEnabled) rmsTrace.onValue(rmsdB)
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {
@@ -342,6 +546,7 @@ class AndroidSpeechRecognizerManager(
 
         override fun onEndOfSpeech() {
             logLifecycle("END_OF_SPEECH")
+            if (diagnosticsEnabled) rmsTrace.markEnd()
             // PHASE 1B — EXPERIMENT (b): ask the service what its endpointing was.
             // The extras are documented as being returned in the results bundle,
             // but services vary; reading them here as well costs one line and
@@ -365,6 +570,7 @@ class AndroidSpeechRecognizerManager(
                 return
             }
             logLifecycle("ERROR", detail = "code=$error | mapped=$mapped")
+            logRms("ERROR")
             mutableEvents.tryEmit(SpeechEvent.Failure(mapped))
         }
 
@@ -396,6 +602,7 @@ class AndroidSpeechRecognizerManager(
                 transcript = text,
                 detail = if (text.isBlank()) "BLANK_RESULT" else null
             )
+            logRms("FINAL")
             mutableEvents.tryEmit(SpeechEvent.FinalResult(text))
         }
 
@@ -473,6 +680,83 @@ class AndroidSpeechRecognizerManager(
      * rather than hidden behind a default of 0.0 — the two lead to different
      * conclusions about how much the ranking can be trusted.
      */
+    /**
+     * PHASE 1C — one line per session, the scalar level statistics.
+     *
+     * Scoped to the session by design: every phase (before speech, during speech,
+     * after end-of-speech) is measured separately, because an average over the
+     * whole session cannot distinguish "quiet throughout" from "loud, then cut".
+     *
+     * Only ranges and means are printed — no sample, no audio, nothing that could
+     * reconstruct what was said. A level in dB cannot be turned back into speech.
+     */
+    private fun logRms(stage: String) {
+        if (!diagnosticsEnabled) return
+        Log.d(TAG_STT, "session=$currentSession | RMS | at=$stage | " + rmsTrace.format())
+    }
+
+    /**
+     * PHASE 1C — what the audio input route looks like right now.
+     *
+     * WHY THIS EXISTS: the physical test compared a Bluetooth headset (5/5) against
+     * the phone microphone (1/5). That comparison only means something if the
+     * headset's MICROPHONE was the active input rather than its audio OUTPUT being
+     * the only thing routed. These values make that checkable from the trace
+     * instead of assumed: the input device, whether Bluetooth SCO is engaged for
+     * input, and whether speakerphone is on.
+     *
+     * Deliberately read-only: no AudioManager call here changes any state.
+     */
+    private fun logInputRoute() {
+        if (!diagnosticsEnabled) return
+        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        if (audio == null) {
+            Log.d(TAG_STT, "session=$currentSession | INPUT_ROUTE | audio_service=unavailable")
+            return
+        }
+        // Available input devices (API 23) — useful context, but NOT proof of what
+        // is being captured: a paired headset appears here even when the phone mic
+        // is the one in use.
+        val available = runCatching {
+            audio.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
+                .joinToString(",") { it.typeName() }
+        }.getOrElse { "error" }
+
+        // The device the system has actually selected for communication (API 31).
+        // This is the closest observable answer to "is the Bluetooth MICROPHONE in
+        // use, or only its audio OUTPUT?" - it is the documented replacement for the
+        // deprecated isBluetoothScoOn()/isSpeakerphoneOn() pair below.
+        val active = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { audio.getCommunicationDevice()?.typeName() ?: "null" }.getOrElse { "error" }
+        } else {
+            "unsupported(pre-31)"
+        }
+
+        // Kept as well: on the older API levels these are the only signal there is,
+        // and on newer ones they corroborate the active device.
+        val sco = runCatching { audio.isBluetoothScoOn() }.getOrElse { false }
+        val speaker = runCatching { audio.isSpeakerphoneOn() }.getOrElse { false }
+        val mode = runCatching { audio.getMode() }.getOrElse { -1 }
+        Log.d(
+            TAG_STT,
+            "session=$currentSession | INPUT_ROUTE | active=$active | " +
+                "available=[$available] | sco_on=$sco | speakerphone_on=$speaker | mode=$mode"
+        )
+    }
+
+    /** Maps an input device type to a stable, greppable name. */
+    private fun android.media.AudioDeviceInfo.typeName(): String = when (type) {
+        android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "BUILTIN_MIC"
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
+        android.media.AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
+        android.media.AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+        android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
+        android.media.AudioDeviceInfo.TYPE_TELEPHONY -> "TELEPHONY"
+        android.media.AudioDeviceInfo.TYPE_FM_TUNER -> "FM_TUNER"
+        else -> "TYPE_$type"
+    }
+
     private fun logHypotheses(results: Bundle?) {
         if (!diagnosticsEnabled) return
         val alternatives = results

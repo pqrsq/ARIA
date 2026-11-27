@@ -136,11 +136,68 @@ between `BEGINNING_OF_SPEECH` and `END_OF_SPEECH`:
 - Normal values, or all `n/a` → endpointing is not the explanation, and the acoustics
   are the place to look.
 
-### What is still deliberately absent
+## Phase 1C — scalar audio levels (experiment (c))
 
-`onRmsChanged` energy logging (experiment (c)) is **not** implemented. It is only needed
-if (a) and (b) both come back inconclusive. It is also the one experiment with a privacy
-question attached, so it should not be added before it is needed.
+Added after a physical test split the failure by microphone: a Bluetooth headset
+recognised **5/5**, the phone's own microphone **1/5**, with TTS off.
+
+Phase 1B could not distinguish two very different causes, because a truncated
+utterance and an utterance that was never captured look identical in transcript
+callbacks. These numbers do distinguish them.
+
+### `RMS` — one line per session
+
+```
+ARIA_STT | session=7 | RMS | at=FINAL | n=50 | min=-2.2 | max=12.0 | mean=4.7 |
+  begin#=1 end#=1 | pre(n=20 mean=-1.9 max=-1.5) |
+  atBegin(before=-1.8 recentMax=-1.5 after=8.0) |
+  during(n=27 mean=9.9 max=12.0) | RISE=11.8 |
+  atEnd(before=9.0 recentMax=12.0) | afterEnd(n=2 mean=-1.5 max=-1.0)
+```
+
+All values are `rmsdB` scalars. **No sample, buffer or audio is stored** — a level
+cannot be turned back into speech.
+
+| Field | Meaning |
+|---|---|
+| `n` | number of `onRmsChanged` callbacks this session |
+| `pre(n= mean= max=)` | the level **before** `BEGINNING_OF_SPEECH` — the noise floor |
+| `atBegin(before= recentMax= after=)` | last value before BEGIN, max of the ~8 recent values, first value after BEGIN |
+| `during(n= mean= max=)` | level **between** BEGIN and END |
+| **`RISE`** | `during.mean − pre.mean`. **The headline number.** |
+| `atEnd(before= recentMax=)` | level just before `END_OF_SPEECH` |
+| `afterEnd(...)` | tail after END, usually the room going quiet |
+
+Emitted once, at `at=FINAL` or `at=ERROR` — never per callback, because a log line
+per callback would flood Logcat and change the timing of the session being measured.
+
+### `INPUT_ROUTE` — one line per session, at `START_LISTENING`
+
+```
+ARIA_STT | session=7 | INPUT_ROUTE | active=BUILTIN_MIC | available=[BUILTIN_MIC,BLUETOOTH_SCO] |
+  sco_on=false | speakerphone_on=false | mode=0
+```
+
+This exists because **a connected headset does not prove its own microphone is
+the one being used** — its audio output can be routed while the phone mic still
+captures. `active` (API 31+, from `getCommunicationDevice()`) is the closest
+observable answer; `available` on its own is *not* proof, since a paired headset
+appears there even when it is not in use. All calls are read-only.
+
+Read it before trusting any headset-vs-phone comparison: sessions whose `active=`
+does not match the mic you intended to test are not evidence.
+
+### Decision table
+
+| `RISE` | `atBegin(after=)` | Reading | Lever |
+|---|---|---|---|
+| **large** (≳ 6 dB) | clearly above floor | audio **arrived**; loss is a boundary/decoding decision | endpoint extras (needs approval — it is an intent change) |
+| **≈ 0** | ≈ floor | the recogniser **never received usable audio** | route/gain/mic — no endpoint setting can fix it |
+| large, then collapse | high then floor | speech started, signal died mid-utterance | route instability / gain |
+| `n=0` | `n/a` | the service reports **no levels at all** | (c) is inconclusive; compare only across sessions |
+
+Compare the same table across the three groups: phone-mic successes, phone-mic
+failures, headset successes.
 
 ## Why the trace only appears in a debuggable build
 
