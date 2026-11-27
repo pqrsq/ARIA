@@ -3,6 +3,8 @@ package com.example.aria.voice
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -403,6 +405,10 @@ class AndroidSpeechRecognizerManager(
         runOnMain {
             if (isReleased || isListening) return@runOnMain
 
+            // PHASE 1D: remember whether this session reused the existing instance.
+            // Purely for the diagnostic line below - the recogniser is obtained
+            // exactly as before, and nothing about reuse is changed.
+            val reused = speechRecognizer != null
             val recognizer = speechRecognizer ?: createRecognizer().also {
                 speechRecognizer = it
             }
@@ -422,13 +428,17 @@ class AndroidSpeechRecognizerManager(
                 // before startListening(), so no value from a previous session can
                 // bleed into this one's statistics.
                 rmsTrace.reset()
-                logLifecycle("START_LISTENING")
-                // PHASE 1C: which device the system believes is capturing right now.
-                // Needed to VALIDATE the Bluetooth experiment: a connected headset
-                // does not prove the recogniser is using its microphone rather than
-                // merely routing audio output, so the comparison is only sound if
-                // the route is recorded alongside the levels.
-                logInputRoute()
+                // PHASE 1D: the audio state IMMEDIATELY BEFORE startListening(), on
+                // every recogniser creation and every reuse, so the two Bluetooth
+                // conditions can be compared at the same moment in the lifecycle.
+                // PHASE 1D: reused or freshly created? A recogniser that is created
+                // once and reused binds to the audio state at its creation time,
+                // which is a different experiment from recreating it per session.
+                logLifecycle(
+                    "START_LISTENING",
+                    detail = "recognizer=" + (if (reused) "REUSED" else "CREATED")
+                )
+                logInputRoute("PRE_START")
             }
 
             try {
@@ -513,6 +523,10 @@ class AndroidSpeechRecognizerManager(
             // prime suspect. If the user starts talking during that gap, the
             // opening word is not in the audio the service ever receives.
             logLifecycle("READY_FOR_SPEECH")
+            // PHASE 1D: read again here, because a capture may not be registered at
+            // the instant startListening() returns. This line is the one that should
+            // name the capture device actually in use.
+            logInputRoute("READY_FOR_SPEECH")
             mutableEvents.tryEmit(SpeechEvent.ReadyForSpeech)
         }
 
@@ -667,20 +681,6 @@ class AndroidSpeechRecognizerManager(
     }
 
     /**
-     * PHASE 1B — EXPERIMENT (a): every hypothesis the service returned, plus its
-     * confidence when the service supplies one.
-     *
-     * WHY THIS IS LOGGING AND NOT A FIX: ARIA requests `EXTRA_MAX_RESULTS = 1`, so
-     * the platform may legitimately return a single candidate. This line answers a
-     * question ARIA cannot answer by reasoning — *was the full phrase in the
-     * bundle and only de-ranked, or was it never decoded?* Nothing here changes
-     * which hypothesis is used; index 0 remains the only one ever emitted.
-     *
-     * "no score" is distinct from a LOW score, so it is printed as `conf=n/a`
-     * rather than hidden behind a default of 0.0 — the two lead to different
-     * conclusions about how much the ranking can be trusted.
-     */
-    /**
      * PHASE 1C — one line per session, the scalar level statistics.
      *
      * Scoped to the session by design: every phase (before speech, during speech,
@@ -696,67 +696,99 @@ class AndroidSpeechRecognizerManager(
     }
 
     /**
-     * PHASE 1C — what the audio input route looks like right now.
+     * PHASE 1D — what is ACTUALLY capturing, and what audio state is in effect.
      *
-     * WHY THIS EXISTS: the physical test compared a Bluetooth headset (5/5) against
-     * the phone microphone (1/5). That comparison only means something if the
-     * headset's MICROPHONE was the active input rather than its audio OUTPUT being
-     * the only thing routed. These values make that checkable from the trace
-     * instead of assumed: the input device, whether Bluetooth SCO is engaged for
-     * input, and whether speakerphone is on.
+     * WHY THIS REPLACES THE PHASE 1C VERSION: that version reported
+     * `getCommunicationDevice()` as "the closest observable answer to which
+     * microphone is being used". That was WRONG. `getCommunicationDevice()` returns
+     * the device selected for communication on the OUTPUT path — its own javadoc
+     * says it replaces `isBluetoothScoOn()`/`isSpeakerphoneOn()` — so it can never
+     * name an input microphone. In the 1C trace it read TYPE_1
+     * (TYPE_BUILTIN_EARPIECE, an output type) in all 15 sessions, including the
+     * Bluetooth ones. It was measuring the wrong side of the audio path.
      *
-     * Deliberately read-only: no AudioManager call here changes any state.
+     * THE CORRECT SOURCE: `getActiveRecordingConfigurations()` lists every active
+     * capture in the system. Each entry carries `getAudioDevice()`, which IS the
+     * input device that recording is actually using, plus `isClientSilenced()`,
+     * which reports whether the system is feeding that client silence. Read at
+     * START_LISTENING and again at the first lifecycle callback, because the
+     * capture may not be registered yet at the instant startListening() is called.
+     *
+     * Still strictly read-only: nothing here selects, changes or requests a route.
      */
-    private fun logInputRoute() {
+    private fun logInputRoute(stage: String) {
         if (!diagnosticsEnabled) return
-        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         if (audio == null) {
-            Log.d(TAG_STT, "session=$currentSession | INPUT_ROUTE | audio_service=unavailable")
+            Log.d(TAG_STT, "session=$currentSession | INPUT_ROUTE | at=$stage | audio_service=unavailable")
             return
         }
-        // Available input devices (API 23) — useful context, but NOT proof of what
-        // is being captured: a paired headset appears here even when the phone mic
-        // is the one in use.
-        val available = runCatching {
-            audio.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
-                .joinToString(",") { it.typeName() }
+
+        // THE ANSWER: which input device each active capture is really using.
+        val recordings = runCatching {
+            audio.activeRecordingConfigurations.joinToString(" ; ") { config ->
+                val device = config.audioDevice
+                val name = device?.run { "${typeName()}/" + (productName ?: "?") } ?: "unknown"
+                "src=${config.clientAudioSessionId} dev=$name silenced=${config.isClientSilenced}"
+            }
         }.getOrElse { "error" }
 
-        // The device the system has actually selected for communication (API 31).
-        // This is the closest observable answer to "is the Bluetooth MICROPHONE in
-        // use, or only its audio OUTPUT?" - it is the documented replacement for the
-        // deprecated isBluetoothScoOn()/isSpeakerphoneOn() pair below.
-        val active = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { audio.getCommunicationDevice()?.typeName() ?: "null" }.getOrElse { "error" }
+        // Context: what the rest of the audio state looks like. mode=0 (NORMAL) is
+        // the state in which Android is most likely to prefer the built-in mic.
+        val mode = runCatching { audio.mode }.getOrElse { -1 }
+        val sco = runCatching { audio.isBluetoothScoOn }.getOrElse { false }
+        val speaker = runCatching { audio.isSpeakerphoneOn }.getOrElse { false }
+        val musicActive = runCatching { audio.isMusicActive }.getOrElse { false }
+        val commDev = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { audio.communicationDevice?.typeName() ?: "null" }.getOrElse { "error" }
         } else {
-            "unsupported(pre-31)"
+            "unsupported"
         }
 
-        // Kept as well: on the older API levels these are the only signal there is,
-        // and on newer ones they corroborate the active device.
-        val sco = runCatching { audio.isBluetoothScoOn() }.getOrElse { false }
-        val speaker = runCatching { audio.isSpeakerphoneOn() }.getOrElse { false }
-        val mode = runCatching { audio.getMode() }.getOrElse { -1 }
+        // Which input devices exist right now. Kept for comparison only - a paired
+        // headset appears here even when it is not capturing, so this is never proof.
+        val available = runCatching {
+            audio.getDevices(AudioManager.GET_DEVICES_INPUTS).joinToString(",") { it.typeName() }
+        }.getOrElse { "error" }
+
         Log.d(
             TAG_STT,
-            "session=$currentSession | INPUT_ROUTE | active=$active | " +
-                "available=[$available] | sco_on=$sco | speakerphone_on=$speaker | mode=$mode"
+            "session=$currentSession | INPUT_ROUTE | at=$stage | " +
+                "capturing=[$recordings] | mode=$mode | sco_on=$sco | " +
+                "speakerphone_on=$speaker | music_active=$musicActive | " +
+                "comm_device=$commDev | available=[$available]"
         )
     }
 
     /** Maps an input device type to a stable, greppable name. */
-    private fun android.media.AudioDeviceInfo.typeName(): String = when (type) {
-        android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "BUILTIN_MIC"
-        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
-        android.media.AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
-        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
-        android.media.AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
-        android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
-        android.media.AudioDeviceInfo.TYPE_TELEPHONY -> "TELEPHONY"
-        android.media.AudioDeviceInfo.TYPE_FM_TUNER -> "FM_TUNER"
+    private fun AudioDeviceInfo.typeName(): String = when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_MIC -> "BUILTIN_MIC"
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
+        AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
+        AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+        AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
+        AudioDeviceInfo.TYPE_TELEPHONY -> "TELEPHONY"
+        AudioDeviceInfo.TYPE_FM_TUNER -> "FM_TUNER"
+        AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> "REMOTE_SUBMIX"
+        AudioDeviceInfo.TYPE_ECHO_REFERENCE -> "ECHO_REFERENCE"
         else -> "TYPE_$type"
     }
 
+    /**
+     * PHASE 1B — EXPERIMENT (a): every hypothesis the service returned, plus its
+     * confidence when the service supplies one.
+     *
+     * WHY THIS IS LOGGING AND NOT A FIX: ARIA requests `EXTRA_MAX_RESULTS = 1`, so
+     * the platform may legitimately return a single candidate. This line answers a
+     * question ARIA cannot answer by reasoning — *was the full phrase in the
+     * bundle and only de-ranked, or was it never decoded?* Nothing here changes
+     * which hypothesis is used; index 0 remains the only one ever emitted.
+     *
+     * "no score" is distinct from a LOW score, so it is printed as `conf=n/a`
+     * rather than hidden behind a default of 0.0 — the two lead to different
+     * conclusions about how much the ranking can be trusted.
+     */
     private fun logHypotheses(results: Bundle?) {
         if (!diagnosticsEnabled) return
         val alternatives = results

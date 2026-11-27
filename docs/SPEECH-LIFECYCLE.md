@@ -164,28 +164,63 @@ cannot be turned back into speech.
 | `pre(n= mean= max=)` | the level **before** `BEGINNING_OF_SPEECH` — the noise floor |
 | `atBegin(before= recentMax= after=)` | last value before BEGIN, max of the ~8 recent values, first value after BEGIN |
 | `during(n= mean= max=)` | level **between** BEGIN and END |
-| **`RISE`** | `during.mean − pre.mean`. **The headline number.** |
+| `RISE` | `during.mean − pre.mean`. **Known-unreliable — see below.** |
 | `atEnd(before= recentMax=)` | level just before `END_OF_SPEECH` |
 | `afterEnd(...)` | tail after END, usually the room going quiet |
 
 Emitted once, at `at=FINAL` or `at=ERROR` — never per callback, because a log line
 per callback would flood Logcat and change the timing of the session being measured.
 
-### `INPUT_ROUTE` — one line per session, at `START_LISTENING`
+### `INPUT_ROUTE` — read twice per session (Phase 1D)
 
 ```
-ARIA_STT | session=7 | INPUT_ROUTE | active=BUILTIN_MIC | available=[BUILTIN_MIC,BLUETOOTH_SCO] |
-  sco_on=false | speakerphone_on=false | mode=0
+ARIA_STT | session=7 | INPUT_ROUTE | at=PRE_START | capturing=[src=123 dev=BUILTIN_MIC/Phone Microphone silenced=false] |
+  mode=0 | sco_on=false | speakerphone_on=false | music_active=false | comm_device=BUILTIN_EARPIECE | available=[...]
 ```
 
-This exists because **a connected headset does not prove its own microphone is
-the one being used** — its audio output can be routed while the phone mic still
-captures. `active` (API 31+, from `getCommunicationDevice()`) is the closest
-observable answer; `available` on its own is *not* proof, since a paired headset
-appears there even when it is not in use. All calls are read-only.
+Printed at **`PRE_START`** (immediately before `startListening()`) and again at
+**`READY_FOR_SPEECH`**, because a capture may not be registered at the instant
+`startListening()` returns.
 
-Read it before trusting any headset-vs-phone comparison: sessions whose `active=`
-does not match the mic you intended to test are not evidence.
+| Field | Meaning |
+|---|---|
+| **`capturing=`** | **the answer.** Each active capture in the system, its real input device, and whether the system is feeding it silence |
+| `mode` | `0` = `MODE_NORMAL` — the state in which Android prefers the built-in mic |
+| `sco_on` / `speakerphone_on` | legacy **output**-side flags, kept as context only |
+| `music_active` | whether some other client is playing audio |
+| `comm_device` | **output** device for communication. Not relevant to which mic is used |
+| `available` | input devices that *exist*. A paired headset appears here even when it is not capturing, so this is never proof |
+
+#### Correction: the Phase 1C version of this line was wrong
+
+Phase 1C reported `getCommunicationDevice()` as "the closest observable answer to
+which microphone is being used". **That was wrong.** Its own javadoc says it
+replaces `isBluetoothScoOn()`/`isSpeakerphoneOn()` — both **output**-side — so it can
+never name an input. In the 1C trace it read `TYPE_1`
+(`TYPE_BUILTIN_EARPIECE`, an output type) in **all 15 sessions, including the
+Bluetooth ones**, which is why the Bluetooth microphone could not be confirmed.
+
+`getActiveRecordingConfigurations()` is the correct source: it lists every active
+capture and each one's `getAudioDevice()` is the input actually in use.
+
+#### `RISE` did not work, and why
+
+`RISE` was designed as the headline number. **It is not usable**, and the reason is
+worth recording so nobody rebuilds it:
+
+`pre` was assumed to be a clean noise floor. It is not. The recogniser fires
+`BEGINNING_OF_SPEECH` *after* the user has already started talking, so `pre` is
+polluted with the beginning of the utterance itself. In the 1C trace `pre` contains
+values of `10.0`. The result is that `RISE` is ≈ 0 or negative **even for sessions
+that succeeded**, so it cannot separate success from failure.
+
+Use instead: `n` (callbacks), `during.mean`, `during.max`, and the gap between the
+last PARTIAL and `END_OF_SPEECH`. Those did separate the groups in the 1C trace.
+
+`rmsdB` itself is an **unbounded dB value** — the platform documents only "the new
+RMS dB value". The `10.0` ceiling seen everywhere is the service's own practical
+clamp, not an API limit, so treat "10.0" as "at the top of this service's range"
+rather than an absolute level.
 
 ### Decision table
 
