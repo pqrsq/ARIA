@@ -771,7 +771,10 @@ class AndroidSpeechRecognizerManager(
         AudioDeviceInfo.TYPE_TELEPHONY -> "TELEPHONY"
         AudioDeviceInfo.TYPE_FM_TUNER -> "FM_TUNER"
         AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> "REMOTE_SUBMIX"
-        AudioDeviceInfo.TYPE_ECHO_REFERENCE -> "ECHO_REFERENCE"
+        // TYPE_ECHO_REFERENCE is NOT mapped on purpose: it is @hide in AOSP and is
+        // only used with an ECHO_REFERENCE capture source that needs the privileged
+        // CAPTURE_AUDIO_OUTPUT permission, so it cannot appear for this app. The
+        // `else` branch prints its number if it ever does.
         else -> "TYPE_$type"
     }
 

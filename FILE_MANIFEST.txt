@@ -71,7 +71,7 @@ b59b960480998b9b  app/src/main/java/com/example/aria/ui/components/MicrophoneBut
 7ca9aef4e24fbf1e  app/src/main/java/com/example/aria/ui/theme/Theme.kt
 3d593cba8174d455  app/src/main/java/com/example/aria/ui/theme/Type.kt
 6cccb80dc5b3f4e6  app/src/main/java/com/example/aria/voice/SpeechMessages.kt
-d14c2a5fdd70ef4d  app/src/main/java/com/example/aria/voice/SpeechRecognizerManager.kt
+e102a89637ca9abc  app/src/main/java/com/example/aria/voice/SpeechRecognizerManager.kt
 c8739734b2e9c939  app/src/main/java/com/example/aria/voice/TextToSpeechManager.kt
 d6d31e17f0ea1392  app/src/main/java/com/example/aria/voice/TtsAcknowledgements.kt
 7793a1602256fab3  app/src/main/java/com/example/aria/voice/TtsMessages.kt
