@@ -253,6 +253,7 @@ on a device without saying anything out loud.
 | [`docs/PHASE-R1.md`](docs/PHASE-R1.md) | The correctness pass: four concurrency/durability defects, code quoted before and after |
 | [`docs/PHASE*.md`](docs/) | Per-phase record, including corrections and what each phase could not verify |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Read this first if a build fails |
+| [`docs/SPEECH-LIFECYCLE.md`](docs/SPEECH-LIFECYCLE.md) | Reading the `ARIA_STT` recognition trace (V1.1 Phase 1A diagnostics) |
 | [`FILE_MANIFEST.txt`](FILE_MANIFEST.txt) | Every tracked file with a checksum |
 
 ## Privacy

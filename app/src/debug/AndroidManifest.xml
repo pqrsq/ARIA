@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    PHASE 1-PROBE — DEBUG-ONLY MANIFEST
+
+    Everything here exists only in the debug variant. A release APK cannot contain
+    this Activity, the probe process, or anything it references: src/debug is a
+    source set, not a flag, so `assembleRelease` never sees these files.
+
+    WHY android:process=":sttprobe" — the hypothesis under test is that something
+    in ARIA's MAIN process (a TTS engine binding, an audio focus holder, a stale
+    SpeechRecognizer) degrades the input path. A screen inside the main process
+    cannot separate "the platform is misbehaving" from "ARIA's own process is
+    misbehaving", because both run in the same process. A separate process gives
+    the probe a clean audio client of its own.
+
+    NO PERMISSIONS ARE ADDED OR CHANGED HERE. RECORD_AUDIO is already declared by
+    the main manifest, and it is a normal app-level permission shared by every
+    process in the app.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".probe.SttProbeActivity"
+            android:exported="true"
+            android:label="ARIA STT Probe"
+            android:process=":sttprobe"
+            android:theme="@style/Theme.ARIA">
+
+            <!--
+                A launcher entry so the probe can be opened directly from the
+                launcher, as required by the brief. The brief also asked for
+                exported="true"; a launcher activity must be exported anyway.
+
+                CATEGORY_LAUNCHER plus the standard launcher filter is deliberately
+                the ONLY route in: there is no deep link, no VIEW intent filter and
+                no exported component that accepts data from another app.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
