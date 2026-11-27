@@ -234,6 +234,57 @@ rather than an absolute level.
 Compare the same table across the three groups: phone-mic successes, phone-mic
 failures, headset successes.
 
+## Phase 1F — per-session `SpeechRecognizer` (A/B experiment, BEHAVIOUR CHANGE)
+
+⚠️ **This is the first phase in this branch that changes behaviour rather than
+observation.** Everything before it is logging only. This one is a deliberate A/B
+experiment and is meant to be reverted if it does not help.
+
+### What changed
+
+| | Before | After (1F) |
+|---|---|---|
+| Creation | once, on first use | **a fresh instance every `startListening()`** |
+| Destruction | only in `release()` | **after every terminal callback**, and in `release()`/`cancel()` |
+
+Nothing else changed: the intent, the extras, the audio configuration, the parser
+and the UI are byte-identical. `startListening` still returns as soon as the
+platform accepts the call; destruction happens only **after** the `FINAL` or
+`ERROR` event has already been emitted, so a result can never be swallowed.
+
+### Why this experiment
+
+The three-group test (A: Bluetooth off, B: Bluetooth on with no device, C:
+Bluetooth on with a device connected in another room) produced:
+
+| group | exact phrase | any result |
+|---|---|---|
+| A — Bluetooth off | 1/5 | 3/5 |
+| B — Bluetooth on, no device | 1/5 | 2/5 |
+| C — Bluetooth on, device paired elsewhere | **5/5** | **5/5** |
+
+and in group C the capture device was still `BUILTIN_MIC` in 4 of 5 sessions. So
+the failure tracks the **presence of a paired device**, not the input route, and
+not any audio state these APIs expose (`mode`, `sco_on`, `speakerphone_on`,
+`comm_device` were identical in all 15 sessions).
+
+One way a stale association could survive is a `SpeechRecognizer` created under a
+different audio state and then reused for every later session. This experiment
+removes that variable.
+
+### How to read the result
+
+| Outcome | Conclusion |
+|---|---|
+| A still fails, C still succeeds | reuse is **not** the cause; revert this phase |
+| A improves | reuse **was** contributing; keep, and clean up properly |
+
+### Reverting it
+
+Two edits: restore `speechRecognizer ?: createRecognizer()` in `startListening()`
+and delete the `endSessionLocked()` calls. The `reused` local and the
+`per_session=` field in the trace line exist so the log stays comparable.
+
 ## Why the trace only appears in a debuggable build
 
 Transcripts are the most private data this app produces, and ARIA's privacy contract says
