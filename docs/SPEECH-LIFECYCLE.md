@@ -234,56 +234,56 @@ rather than an absolute level.
 Compare the same table across the three groups: phone-mic successes, phone-mic
 failures, headset successes.
 
-## Phase 1F — per-session `SpeechRecognizer` (A/B experiment, BEHAVIOUR CHANGE)
+## Phase 1F — per-session `SpeechRecognizer`: TESTED AND REVERTED
 
-⚠️ **This is the first phase in this branch that changes behaviour rather than
-observation.** Everything before it is logging only. This one is a deliberate A/B
-experiment and is meant to be reverted if it does not help.
+This phase was the only one in this branch that changed behaviour rather than
+observation, and it has been undone. It is kept in the record because a negative
+result is what closes a hypothesis.
 
-### What changed
+**Changed:** every `startListening()` created a fresh `SpeechRecognizer`, destroyed
+after each terminal callback, instead of creating once and reusing forever.
+Nothing else: same intent, same extras, same audio configuration.
 
-| | Before | After (1F) |
-|---|---|---|
-| Creation | once, on first use | **a fresh instance every `startListening()`** |
-| Destruction | only in `release()` | **after every terminal callback**, and in `release()`/`cancel()` |
-
-Nothing else changed: the intent, the extras, the audio configuration, the parser
-and the UI are byte-identical. `startListening` still returns as soon as the
-platform accepts the call; destruction happens only **after** the `FINAL` or
-`ERROR` event has already been emitted, so a result can never be swallowed.
-
-### Why this experiment
-
-The three-group test (A: Bluetooth off, B: Bluetooth on with no device, C:
-Bluetooth on with a device connected in another room) produced:
+**Result:**
 
 | group | exact phrase | any result |
 |---|---|---|
-| A — Bluetooth off | 1/5 | 3/5 |
-| B — Bluetooth on, no device | 1/5 | 2/5 |
-| C — Bluetooth on, device paired elsewhere | **5/5** | **5/5** |
+| A — Bluetooth off | **2/5** | 3/5 |
+| C — Bluetooth on, device paired elsewhere | **5/5** | 5/5 |
 
-and in group C the capture device was still `BUILTIN_MIC` in 4 of 5 sessions. So
-the failure tracks the **presence of a paired device**, not the input route, and
-not any audio state these APIs expose (`mode`, `sco_on`, `speakerphone_on`,
-`comm_device` were identical in all 15 sessions).
+Every session logged `recognizer=CREATED | per_session=true`, so the change was
+definitely in effect, and the gap between A and C survived it unchanged.
 
-One way a stale association could survive is a `SpeechRecognizer` created under a
-different audio state and then reused for every later session. This experiment
-removes that variable.
+**Conclusion: reuse is not the mechanism.** A stale recogniser bound to an older
+audio state does not explain the failure. Reverted.
 
-### How to read the result
+Two honest caveats about the numbers:
 
-| Outcome | Conclusion |
-|---|---|
-| A still fails, C still succeeds | reuse is **not** the cause; revert this phase |
-| A improves | reuse **was** contributing; keep, and clean up properly |
+- **A went 1/5 → 2/5.** With n=5 that is one attempt, inside noise; A failed the
+  same way in both builds (mostly a truncated decode, twice NO_MATCH). Not
+  evidence that per-session creation helped.
+- **`capturing=NONE` is not evidence of no capture.** In 4 of the 5 group-C
+  sessions the capture list was empty and all succeeded. Without
+  `MODIFY_AUDIO_ROUTING` that API reports nothing reliably at those instants, so
+  `capturing=[]` only ever means "not visible to this app right now".
 
-### Reverting it
+## What the whole investigation has now ruled out
 
-Two edits: restore `speechRecognizer ?: createRecognizer()` in `startListening()`
-and delete the `endSessionLocked()` calls. The `reused` local and the
-`per_session=` field in the trace line exist so the log stays comparable.
+| Candidate | Verdict | Evidence |
+|---|---|---|
+| TTS / ARIA's own audio | **excluded** | TTS off did not help; ARIA plays no tones, takes no audio focus |
+| ARIA's lifecycle (stop/cancel) | **excluded** | zero STOP/CANCEL/RELEASED in every trace |
+| Result selection / ranking | **excluded** | `ALTERNATIVES n=1` every time; FINAL never worse than the best PARTIAL |
+| Start readiness / adding a delay | **excluded** | START→READY 47–216 ms; no correlation with success |
+| Endpointing as the primary cause | **unlikely** | BEGIN→END is *longer* when failing, not shorter |
+| Reuse of `SpeechRecognizer` | **excluded** (Phase 1F) | per-session creation changed nothing |
+| Microphone hardware or dirt | **excluded** | the same mic succeeds 5/5 in group C |
+| Bluetooth *microphone* as the input | **excluded** | capture stays `BUILTIN_MIC`; headset was in another room |
+| **A paired Bluetooth device being present** | **only surviving correlate** | A 1–2/5, B 1/5, C 5/5 |
+
+A paired device is present in C and absent in A and B, and every observable audio
+field (`mode`, `sco_on`, `speakerphone_on`, `comm_device`) is identical across all
+groups. The effect is real but invisible to every public API checked here.
 
 ## Why the trace only appears in a debuggable build
 

@@ -398,26 +398,6 @@ class AndroidSpeechRecognizerManager(
      */
     private var isCancelling = false
 
-    /**
-     * PHASE 1F — TEMPORARY A/B EXPERIMENT (behaviour change, revertible).
-     *
-     * True for the whole lifetime of one listening session, from before
-     * startListening() until after the terminal callback has been handled.
-     * The per-session [SpeechRecognizer] is destroyed when it clears.
-     *
-     * WHY: the three-group test showed the failure tracks the PRESENCE of a paired
-     * Bluetooth device, not the input route - capturing stayed BUILTIN_MIC in the
-     * group that succeeded 5/5. One way a stale device association could survive is
-     * a [SpeechRecognizer] that was created under a different audio state and then
-     * reused for every later session. This experiment removes reuse as a variable.
-     *
-     * NOT A FIX: no audio, parser, UI or intent change. Sessions behave identically
-     * apart from which instance serves them. Reverting this flag to false, and
-     * restoring the reuse branch in startListening(), restores the old behaviour
-     * exactly.
-     */
-    private var sessionInFlight = false
-
     override fun isRecognitionAvailable(): Boolean =
         SpeechRecognizer.isRecognitionAvailable(appContext)
 
@@ -425,15 +405,13 @@ class AndroidSpeechRecognizerManager(
         runOnMain {
             if (isReleased || isListening) return@runOnMain
 
-            // PHASE 1F — A/B EXPERIMENT: a FRESH instance for every session.
-            //
-            // The old code was `speechRecognizer ?: createRecognizer()`, i.e. created
-            // once and reused forever. Any instance left over is destroyed first so
-            // two instances never hold the microphone at the same time.
-            val reused = false
-            destroyRecognizerLocked()
-            val recognizer = createRecognizer().also { speechRecognizer = it }
-            sessionInFlight = true
+            // PHASE 1D: remember whether this session reused the existing instance.
+            // Purely for the diagnostic line below - the recogniser is obtained
+            // exactly as before, and nothing about reuse is changed.
+            val reused = speechRecognizer != null
+            val recognizer = speechRecognizer ?: createRecognizer().also {
+                speechRecognizer = it
+            }
 
             isListening = true
             isCancelling = false
@@ -458,10 +436,7 @@ class AndroidSpeechRecognizerManager(
                 // which is a different experiment from recreating it per session.
                 logLifecycle(
                     "START_LISTENING",
-                    // PHASE 1F: always CREATED now. The field is kept so the trace
-                    // format stays stable, and so a revert is a one-line change.
-                    detail = "recognizer=" + (if (reused) "REUSED" else "CREATED") +
-                        " | per_session=true"
+                    detail = "recognizer=" + (if (reused) "REUSED" else "CREATED")
                 )
                 logInputRoute("PRE_START")
             }
@@ -474,10 +449,6 @@ class AndroidSpeechRecognizerManager(
                 isListening = false
                 logLifecycle("START_FAILED", detail = "IllegalStateException (recognition busy)")
                 mutableEvents.tryEmit(SpeechEvent.Failure(SpeechError.RECOGNIZER_BUSY))
-                // PHASE 1F: the instance just created will never serve a session, so
-                // it is torn down here. Without this, every failed start would leak
-                // one SpeechRecognizer that nothing would ever destroy.
-                endSessionLocked()
             }
         }
     }
@@ -506,14 +477,6 @@ class AndroidSpeechRecognizerManager(
             // real failure when the trace is read afterwards.
             logLifecycle("CANCEL_REQUESTED")
             runCatching { speechRecognizer?.cancel() }
-            // PHASE 1F: a cancelled session is over; the per-session instance goes
-            // with it. No later callback is expected or wanted.
-            //
-            // endSessionLocked() is the ONLY teardown used here. Calling
-            // destroyRecognizerLocked() separately first would make a second
-            // cancel() destroy a freshly created instance: the flag would still be
-            // set, and the helper would find the NEXT session's recogniser.
-            endSessionLocked()
         }
     }
 
@@ -524,43 +487,12 @@ class AndroidSpeechRecognizerManager(
             isListening = false
             isCancelling = true
             logLifecycle("RELEASED")
-            // PHASE 1F: one teardown path, shared with the per-session cleanup.
-            sessionInFlight = false
-            destroyRecognizerLocked()
+            speechRecognizer?.let { recognizer ->
+                runCatching { recognizer.cancel() }
+                runCatching { recognizer.destroy() }
+            }
+            speechRecognizer = null
         }
-    }
-
-    /**
-     * PHASE 1F — end-of-session cleanup for the A/B experiment.
-     *
-     * Called only AFTER the terminal callback has been turned into a SpeechEvent,
-     * so destroying the instance cannot swallow the result the user is waiting for.
-     * [isListening] is cleared BEFORE destroy() because destroy() can synchronously
-     * deliver an ERROR_CLIENT; with the flag already false, that stale error is not
-     * turned into a user-facing failure.
-     *
-     * Idempotent: the first caller wins, so a session that errors after onResults
-     * (or vice versa) cannot destroy the same instance twice.
-     */
-    private fun endSessionLocked() {
-        if (!sessionInFlight) return
-        sessionInFlight = false
-        isListening = false
-        destroyRecognizerLocked()
-    }
-
-    /**
-     * PHASE 1F — the ONLY place a recogniser is destroyed.
-     *
-     * Keeping a single path is what makes "created per session, destroyed per
-     * session" safe: destroy() on an already-destroyed SpeechRecognizer throws, so
-     * every teardown goes through here and the field is nulled first.
-     */
-    private fun destroyRecognizerLocked() {
-        val current = speechRecognizer ?: return
-        speechRecognizer = null
-        runCatching { current.cancel() }
-        runCatching { current.destroy() }
     }
 
     private fun createRecognizer(): SpeechRecognizer =
@@ -649,16 +581,11 @@ class AndroidSpeechRecognizerManager(
                     detail = "code=$error | mapped=$mapped | swallowed (ARIA cancelled this session)"
                 )
                 isCancelling = false
-                // PHASE 1F: this session is over either way.
-                endSessionLocked()
                 return
             }
             logLifecycle("ERROR", detail = "code=$error | mapped=$mapped")
             logRms("ERROR")
             mutableEvents.tryEmit(SpeechEvent.Failure(mapped))
-            // PHASE 1F: terminal callback - the per-session instance is released
-            // only AFTER the event is emitted, so the result cannot be swallowed.
-            endSessionLocked()
         }
 
         override fun onResults(results: Bundle?) {
@@ -691,8 +618,6 @@ class AndroidSpeechRecognizerManager(
             )
             logRms("FINAL")
             mutableEvents.tryEmit(SpeechEvent.FinalResult(text))
-            // PHASE 1F: terminal callback - same ordering rule as onError.
-            endSessionLocked()
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
